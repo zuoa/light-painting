@@ -27,6 +27,7 @@ export function ImageCropper({ imageSrc, outputSize, onConfirm, onCancel }: Imag
   frameW = Math.round(frameW)
   frameH = Math.round(frameH)
 
+  const [imgLoaded, setImgLoaded] = useState(false)
   const [imgSize, setImgSize] = useState({ w: 0, h: 0 })
   const [scale, setScale] = useState(1)
   const [offset, setOffset] = useState({ x: 0, y: 0 })
@@ -36,6 +37,7 @@ export function ImageCropper({ imageSrc, outputSize, onConfirm, onCancel }: Imag
   const containerRef = useRef<HTMLDivElement>(null)
   const scaleRef = useRef(1)
   const imgSizeRef = useRef({ w: 0, h: 0 })
+  const imgElRef = useRef<HTMLImageElement | null>(null)
 
   const clampOffset = useCallback(
     (ox: number, oy: number, sc: number, iw: number, ih: number) => {
@@ -63,6 +65,7 @@ export function ImageCropper({ imageSrc, outputSize, onConfirm, onCancel }: Imag
       setScale(initScale)
       scaleRef.current = initScale
       setOffset({ x: 0, y: 0 })
+      setImgLoaded(true)
     }
     img.src = imageSrc
   }, [imageSrc, frameW, frameH])
@@ -74,7 +77,7 @@ export function ImageCropper({ imageSrc, outputSize, onConfirm, onCancel }: Imag
     const handler = (e: WheelEvent) => {
       e.preventDefault()
       const { w: iw, h: ih } = imgSizeRef.current
-      if (iw === 0) return
+      if (iw === 0 || ih === 0) return
       const minScale = Math.max(frameW / iw, frameH / ih)
       const maxScale = minScale * MAX_SCALE_FACTOR
       const delta = e.deltaY < 0 ? 1.1 : 1 / 1.1
@@ -138,7 +141,7 @@ export function ImageCropper({ imageSrc, outputSize, onConfirm, onCancel }: Imag
 
   const handleConfirm = useCallback(() => {
     const { w: iw, h: ih } = imgSizeRef.current
-    if (iw === 0) return
+    if (iw === 0 || ih === 0) return
     const sc = scaleRef.current
     const canvas = document.createElement('canvas')
     canvas.width = outputSize.width
@@ -159,11 +162,17 @@ export function ImageCropper({ imageSrc, outputSize, onConfirm, onCancel }: Imag
     img.src = imageSrc
   }, [imageSrc, offset, frameW, frameH, outputSize, onConfirm])
 
-  // Image CSS position - use ref values for consistent calculations
-  const { w: iw, h: ih } = imgSizeRef.current
-  const sc = scaleRef.current
-  const imgLeft = frameW / 2 + offset.x - iw * sc / 2
-  const imgTop = frameH / 2 + offset.y - ih * sc / 2
+  // Calculate display scale ratio (current scale / base scale)
+  // base scale is the scale that fits image to frame
+  const baseScale = imgSize.w > 0 && imgSize.h > 0
+    ? Math.max(frameW / imgSize.w, frameH / imgSize.h)
+    : 1
+  const displayScaleRatio = scale / baseScale
+
+  // Center the image in frame, then apply offset
+  // Image natural size is used as base, then CSS transform scales it
+  const centerX = (frameW - imgSize.w) / 2
+  const centerY = (frameH - imgSize.h) / 2
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 p-4">
@@ -187,6 +196,7 @@ export function ImageCropper({ imageSrc, outputSize, onConfirm, onCancel }: Imag
               overflow: 'hidden',
               cursor: isDragging ? 'grabbing' : 'grab',
               userSelect: 'none',
+              touchAction: 'none',
             }}
             onMouseDown={handleMouseDown}
             onMouseMove={handleMouseMove}
@@ -196,17 +206,25 @@ export function ImageCropper({ imageSrc, outputSize, onConfirm, onCancel }: Imag
             onTouchMove={handleTouchMove}
             onTouchEnd={handleMouseUp}
           >
-            {iw > 0 && (
+            {!imgLoaded && (
+              <div className="absolute inset-0 flex items-center justify-center text-muted text-sm">
+                加载中...
+              </div>
+            )}
+            {imgLoaded && imgSize.w > 0 && imgSize.h > 0 && (
               <img
+                ref={imgElRef}
                 src={imageSrc}
                 alt="crop"
                 draggable={false}
                 style={{
                   position: 'absolute',
-                  left: imgLeft,
-                  top: imgTop,
-                  width: iw * sc,
-                  height: ih * sc,
+                  left: centerX + offset.x,
+                  top: centerY + offset.y,
+                  width: imgSize.w,
+                  height: imgSize.h,
+                  transform: `scale(${displayScaleRatio})`,
+                  transformOrigin: 'center center',
                   pointerEvents: 'none',
                   userSelect: 'none',
                 }}
