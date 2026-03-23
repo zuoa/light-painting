@@ -14,200 +14,187 @@ const FRAME_MAX_W = 460
 const FRAME_MAX_H = 560
 const MAX_SCALE_FACTOR = 8
 
-// Simple state container to ensure width/height are always updated together
-interface DisplayState {
-  w: number
-  h: number
-  x: number
-  y: number
+// State: scale factor and offset from center
+interface ViewState {
+  scale: number // multiply natural size by this
+  ox: number // offset x from center (pixels)
+  oy: number // offset y from center (pixels)
 }
 
 export function ImageCropper({ imageSrc, outputSize, onConfirm: confirmCrop, onCancel }: ImageCropperProps) {
   const aspectRatio = outputSize.width / outputSize.height
 
-  // Compute frame dimensions
-  const frameW = Math.round(FRAME_MAX_H * aspectRatio > FRAME_MAX_W ? FRAME_MAX_W : FRAME_MAX_H * aspectRatio)
-  const frameH = Math.round(frameW / aspectRatio)
+  // Frame size that fits within max bounds
+  const frameH = Math.round(Math.min(FRAME_MAX_H, FRAME_MAX_W / aspectRatio))
+  const frameW = Math.round(frameH * aspectRatio)
 
   const [loaded, setLoaded] = useState(false)
   const [dragging, setDragging] = useState(false)
+  const [natural, setNatural] = useState({ w: 0, h: 0 }) // natural image size
+  const [view, setView] = useState<ViewState>({ scale: 1, ox: 0, oy: 0 })
 
-  // Core state - all derived from this
-  const [display, setDisplay] = useState<DisplayState>({ w: 0, h: 0, x: 0, y: 0 })
-
-  // Refs for event handlers
-  const displayRef = useRef(display)
+  const viewRef = useRef(view)
   const naturalRef = useRef({ w: 0, h: 0 })
   const containerRef = useRef<HTMLDivElement>(null)
-  const dragStartRef = useRef({ mx: 0, my: 0, dx: 0, dy: 0 })
+  const dragStartRef = useRef({ mx: 0, my: 0, ox: 0, oy: 0 })
 
-  // Sync ref with state
-  useEffect(() => { displayRef.current = display }, [display])
+  useEffect(() => { viewRef.current = view }, [view])
 
-  // Initialize image
+  // Load image and initialize
   useEffect(() => {
     setLoaded(false)
     const img = new Image()
     img.onload = () => {
       const nw = img.naturalWidth
       const nh = img.naturalHeight
+      setNatural({ w: nw, h: nh })
       naturalRef.current = { w: nw, h: nh }
 
-      // Initial scale to cover the frame
-      const scale = Math.max(frameW / nw, frameH / nh)
-      setDisplay({
-        w: nw * scale,
-        h: nh * scale,
-        x: 0,
-        y: 0,
-      })
+      // Initial scale: cover the frame
+      const initScale = Math.max(frameW / nw, frameH / nh)
+      setView({ scale: initScale, ox: 0, oy: 0 })
       setLoaded(true)
     }
     img.src = imageSrc
   }, [imageSrc, frameW, frameH])
 
-  // Zoom handler
+  // Clamp offset to keep image covering the frame
+  const clampOffset = useCallback((scale: number, ox: number, oy: number) => {
+    const nw = naturalRef.current.w
+    const nh = naturalRef.current.h
+    if (!nw || !nh) return { ox, oy }
+
+    const dw = nw * scale
+    const dh = nh * scale
+
+    // Allow panning until image edge reaches frame edge
+    const maxOx = Math.max(0, (dw - frameW) / 2)
+    const maxOy = Math.max(0, (dh - frameH) / 2)
+
+    return {
+      ox: Math.max(-maxOx, Math.min(maxOx, ox)),
+      oy: Math.max(-maxOy, Math.min(maxOy, oy)),
+    }
+  }, [frameW, frameH])
+
+  // Wheel zoom handler - zoom towards center of frame
   useEffect(() => {
     const el = containerRef.current
     if (!el) return
 
     const onWheel = (e: WheelEvent) => {
       e.preventDefault()
-      const { w: nw, h: nh } = naturalRef.current
-      const { w: cw, h: ch, x: cx, y: cy } = displayRef.current
-      if (!nw || !nh || !cw || !ch) return
+      const nw = naturalRef.current.w
+      const nh = naturalRef.current.h
+      const { scale: curScale, ox: curOx, oy: curOy } = viewRef.current
+      if (!nw || !nh) return
 
-      // Current scale
-      const curScale = cw / nw
       // Min scale to cover frame
       const minScale = Math.max(frameW / nw, frameH / nh)
-      // Scale delta
+
+      // Calculate new scale
       const delta = e.deltaY < 0 ? 1.1 : 1 / 1.1
-      // New scale (clamped)
       const newScale = Math.max(minScale, Math.min(minScale * MAX_SCALE_FACTOR, curScale * delta))
 
-      // Zoom towards mouse position
+      // Zoom towards mouse position relative to frame center
       const rect = el.getBoundingClientRect()
-      const mouseX = e.clientX - rect.left
-      const mouseY = e.clientY - rect.top
+      const mouseX = e.clientX - rect.left - frameW / 2 // mouse x relative to center
+      const mouseY = e.clientY - rect.top - frameH / 2 // mouse y relative to center
 
-      // Frame center
-      const centerX = frameW / 2
-      const centerY = frameH / 2
+      // The point under mouse in image coordinates before zoom:
+      // imgX = mouseX - curOx
+      // After zoom: imgX = mouseX - newOx
+      // We want: imgX / newScale = imgX / curScale (same point in image)
+      // So: (mouseX - newOx) / newScale = (mouseX - curOx) / curScale
+      // Solving: newOx = mouseX - (mouseX - curOx) * (newScale / curScale)
 
-      // Mouse position relative to image center
-      const relX = mouseX - (centerX + cx)
-      const relY = mouseY - (centerY + cy)
-
-      // After zoom, adjust offset to keep mouse point stable
       const ratio = newScale / curScale
-      const newW = nw * newScale
-      const newH = nh * newScale
-      const newX = cx - relX * (ratio - 1)
-      const newY = cy - relY * (ratio - 1)
+      const newOx = mouseX - (mouseX - curOx) * ratio
+      const newOy = mouseY - (mouseY - curOy) * ratio
 
-      // Clamp to bounds
-      const maxX = Math.max(0, (newW - frameW) / 2)
-      const maxY = Math.max(0, (newH - frameH) / 2)
-
-      setDisplay({
-        w: newW,
-        h: newH,
-        x: Math.max(-maxX, Math.min(maxX, newX)),
-        y: Math.max(-maxY, Math.min(maxY, newY)),
-      })
+      const clamped = clampOffset(newScale, newOx, newOy)
+      setView({ scale: newScale, ...clamped })
     }
 
     el.addEventListener('wheel', onWheel, { passive: false })
     return () => el.removeEventListener('wheel', onWheel)
-  }, [frameW, frameH])
+  }, [frameW, frameH, clampOffset])
 
   // Drag handlers
   const onMouseDown = useCallback((e: React.MouseEvent) => {
     e.preventDefault()
     setDragging(true)
-    dragStartRef.current = { mx: e.clientX, my: e.clientY, dx: display.x, dy: display.y }
-  }, [display.x, display.y])
+    dragStartRef.current = { mx: e.clientX, my: e.clientY, ox: view.ox, oy: view.oy }
+  }, [view.ox, view.oy])
 
   const onMouseMove = useCallback((e: React.MouseEvent) => {
     if (!dragging) return
-    const { mx, my, dx, dy } = dragStartRef.current
-    const { w: dw, h: dh } = displayRef.current
-
-    const newX = dx + (e.clientX - mx)
-    const newY = dy + (e.clientY - my)
-
-    const maxX = Math.max(0, (dw - frameW) / 2)
-    const maxY = Math.max(0, (dh - frameH) / 2)
-
-    setDisplay(prev => ({
-      ...prev,
-      x: Math.max(-maxX, Math.min(maxX, newX)),
-      y: Math.max(-maxY, Math.min(maxY, newY)),
-    }))
-  }, [dragging, frameW, frameH])
+    const { mx, my, ox, oy } = dragStartRef.current
+    const dx = e.clientX - mx
+    const dy = e.clientY - my
+    const clamped = clampOffset(viewRef.current.scale, ox + dx, oy + dy)
+    setView(prev => ({ ...prev, ...clamped }))
+  }, [dragging, clampOffset])
 
   const onMouseUp = useCallback(() => setDragging(false), [])
 
   // Touch support
-  const touchRef = useRef({ x: 0, y: 0, dx: 0, dy: 0 })
+  const touchRef = useRef({ x: 0, y: 0, ox: 0, oy: 0 })
   const onTouchStart = useCallback((e: React.TouchEvent) => {
     if (e.touches.length !== 1) return
     const t = e.touches[0]
-    touchRef.current = { x: t.clientX, y: t.clientY, dx: display.x, dy: display.y }
+    touchRef.current = { x: t.clientX, y: t.clientY, ox: view.ox, oy: view.oy }
     setDragging(true)
-  }, [display.x, display.y])
+  }, [view.ox, view.oy])
 
   const onTouchMove = useCallback((e: React.TouchEvent) => {
     if (!dragging || e.touches.length !== 1) return
     e.preventDefault()
     const t = e.touches[0]
-    const { x: tx, y: ty, dx, dy } = touchRef.current
-    const { w: dw, h: dh } = displayRef.current
+    const { x: tx, y: ty, ox, oy } = touchRef.current
+    const dx = t.clientX - tx
+    const dy = t.clientY - ty
+    const clamped = clampOffset(viewRef.current.scale, ox + dx, oy + dy)
+    setView(prev => ({ ...prev, ...clamped }))
+  }, [dragging, clampOffset])
 
-    const newX = dx + (t.clientX - tx)
-    const newY = dy + (t.clientY - ty)
+  // Calculate displayed image size and position
+  const displayW = natural.w * view.scale
+  const displayH = natural.h * view.scale
+  const left = (frameW - displayW) / 2 + view.ox
+  const top = (frameH - displayH) / 2 + view.oy
 
-    const maxX = Math.max(0, (dw - frameW) / 2)
-    const maxY = Math.max(0, (dh - frameH) / 2)
-
-    setDisplay(prev => ({
-      ...prev,
-      x: Math.max(-maxX, Math.min(maxX, newX)),
-      y: Math.max(-maxY, Math.min(maxY, newY)),
-    }))
-  }, [dragging, frameW, frameH])
-
-  // Crop
+  // Crop handler
   const onConfirm = useCallback(() => {
-    const { w: nw, h: nh } = naturalRef.current
-    const { w: dw, h: dh, x, y } = displayRef.current
-    if (!nw || !nh || !dw || !dh) return
-
-    const scale = dw / nw
+    const nw = naturalRef.current.w
+    const nh = naturalRef.current.h
+    const { scale, ox, oy } = viewRef.current
+    if (!nw || !nh) return
 
     const canvas = document.createElement('canvas')
     canvas.width = outputSize.width
     canvas.height = outputSize.height
     const ctx = canvas.getContext('2d')!
 
-    // Crop region
-    const cropX = nw / 2 - (frameW / 2 - x) / scale
-    const cropY = nh / 2 - (frameH / 2 - y) / scale
-    const cropW = frameW / scale
-    const cropH = frameH / scale
+    // Calculate crop region in source image coordinates
+    // Frame center maps to: image center + offset
+    // Image center is at (nw/2, nh/2)
+    // Displayed image is at: frame_center + ox - (displayW/2)
+    // We want frame (0,0) to (frameW, frameH) mapped to canvas
+    // Source point (sx, sy) that maps to frame point (fx, fy):
+    // sx = nw/2 + ox/scale - frameW/(2*scale) + fx/scale
+    const sx = nw / 2 + ox / scale - frameW / (2 * scale)
+    const sy = nh / 2 + oy / scale - frameH / (2 * scale)
+    const sw = frameW / scale
+    const sh = frameH / scale
 
     const img = new Image()
     img.onload = () => {
-      ctx.drawImage(img, cropX, cropY, cropW, cropH, 0, 0, outputSize.width, outputSize.height)
+      ctx.drawImage(img, sx, sy, sw, sh, 0, 0, outputSize.width, outputSize.height)
       confirmCrop(canvas.toDataURL('image/png'))
     }
     img.src = imageSrc
   }, [imageSrc, frameW, frameH, outputSize, confirmCrop])
-
-  // Calculate position
-  const left = (frameW - display.w) / 2 + display.x
-  const top = (frameH - display.h) / 2 + display.y
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 p-4">
@@ -239,7 +226,7 @@ export function ImageCropper({ imageSrc, outputSize, onConfirm: confirmCrop, onC
               <div className="absolute inset-0 flex items-center justify-center text-muted text-sm">加载中...</div>
             )}
 
-            {loaded && display.w > 0 && display.h > 0 && (
+            {loaded && displayW > 0 && displayH > 0 && (
               <img
                 src={imageSrc}
                 alt="crop"
@@ -248,8 +235,8 @@ export function ImageCropper({ imageSrc, outputSize, onConfirm: confirmCrop, onC
                 style={{
                   left,
                   top,
-                  width: display.w,
-                  height: display.h,
+                  width: displayW,
+                  height: displayH,
                 }}
               />
             )}
