@@ -159,9 +159,11 @@ export function ImageCropper({ imageSrc, outputSize, onConfirm, onCancel }: Imag
     img.src = imageSrc
   }, [imageSrc, offset, frameW, frameH, outputSize, onConfirm])
 
-  // Image CSS position
-  const imgLeft = frameW / 2 + offset.x - imgSize.w * scale / 2
-  const imgTop = frameH / 2 + offset.y - imgSize.h * scale / 2
+  // Image CSS position - use ref values for consistent calculations
+  const { w: iw, h: ih } = imgSizeRef.current
+  const sc = scaleRef.current
+  const imgLeft = frameW / 2 + offset.x - iw * sc / 2
+  const imgTop = frameH / 2 + offset.y - ih * sc / 2
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 p-4">
@@ -194,7 +196,7 @@ export function ImageCropper({ imageSrc, outputSize, onConfirm, onCancel }: Imag
             onTouchMove={handleTouchMove}
             onTouchEnd={handleMouseUp}
           >
-            {imgSize.w > 0 && (
+            {iw > 0 && (
               <img
                 src={imageSrc}
                 alt="crop"
@@ -203,8 +205,8 @@ export function ImageCropper({ imageSrc, outputSize, onConfirm, onCancel }: Imag
                   position: 'absolute',
                   left: imgLeft,
                   top: imgTop,
-                  width: imgSize.w * scale,
-                  height: imgSize.h * scale,
+                  width: iw * sc,
+                  height: ih * sc,
                   pointerEvents: 'none',
                   userSelect: 'none',
                 }}
