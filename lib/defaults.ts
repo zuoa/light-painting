@@ -4,10 +4,10 @@ import type { ProcessParams, StylePreset } from './types'
 
 export const DEFAULT_PARAMS: ProcessParams = {
   cover: {
-    saturationReduction: 0.72,
-    brightness: 1.08,
-    contrast: 1.18,
-    warmth: 18,
+    saturationReduction: 0.86,
+    brightness: 0.99,
+    contrast: 1.1,
+    warmth: 10,
     sharpness: 0.6,
   },
   layer1: {
@@ -49,10 +49,10 @@ export const STYLE_PRESETS: StylePreset[] = [
     description: '柔和朦胧、高光扩散、适合风景',
     params: {
       cover: {
-        saturationReduction: 0.80,
-        brightness: 1.12,
-        contrast: 1.10,
-        warmth: 22,
+        saturationReduction: 0.88,
+        brightness: 1.0,
+        contrast: 1.06,
+        warmth: 12,
         sharpness: 0.3,
       },
       layer1: {
@@ -85,10 +85,10 @@ export const STYLE_PRESETS: StylePreset[] = [
     description: '对比更强、适合线条感强的图',
     params: {
       cover: {
-        saturationReduction: 0.55,
-        brightness: 1.05,
-        contrast: 1.25,
-        warmth: 10,
+        saturationReduction: 0.72,
+        brightness: 1.0,
+        contrast: 1.16,
+        warmth: 8,
         sharpness: 1.0,
       },
       layer1: {
