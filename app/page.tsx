@@ -4,8 +4,10 @@ import { useState, useCallback } from 'react'
 import { UploadZone } from '@/components/UploadZone'
 import { ParamsPanel } from '@/components/ParamsPanel'
 import { ResultGrid } from '@/components/ResultGrid'
+import { ImageCropper } from '@/components/ImageCropper'
 import { Download, Spinner } from '@/components/Icons'
 import type { ProcessParams, ProcessResult } from '@/lib/types'
+import { SIZE_PRESETS } from '@/lib/types'
 import { DEFAULT_PARAMS, STYLE_PRESETS } from '@/lib/defaults'
 import { processImageBrowser } from '@/lib/imageProcessorBrowser'
 import JSZip from 'jszip'
@@ -14,23 +16,68 @@ export default function Home() {
   // State
   const [originalImage, setOriginalImage] = useState<string | null>(null)
   const [originalFile, setOriginalFile] = useState<File | null>(null)
+  // Raw (pre-crop) source kept for re-crop
+  const [rawImageSrc, setRawImageSrc] = useState<string | null>(null)
+  const [rawFile, setRawFile] = useState<File | null>(null)
+  const [showCropper, setShowCropper] = useState(false)
+
   const [params, setParams] = useState<ProcessParams>(DEFAULT_PARAMS)
   const [selectedPreset, setSelectedPreset] = useState('portrait')
   const [result, setResult] = useState<ProcessResult | null>(null)
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  // Handle file upload
+  // Output size derived from params
+  const outputSize =
+    params.common.sizePreset === 'custom'
+      ? { width: params.common.customWidth, height: params.common.customHeight, label: '自定义' }
+      : SIZE_PRESETS[params.common.sizePreset]
+
+  // Handle file upload → open cropper
   const handleUpload = useCallback((file: File) => {
     const reader = new FileReader()
     reader.onload = (e) => {
-      setOriginalImage(e.target?.result as string)
-      setOriginalFile(file)
+      const src = e.target?.result as string
+      setRawImageSrc(src)
+      setRawFile(file)
+      setShowCropper(true)
       setResult(null)
       setError(null)
     }
     reader.readAsDataURL(file)
   }, [])
+
+  // Crop confirmed → convert dataURL to File, use as originalImage
+  const handleCropConfirm = useCallback(
+    async (croppedDataUrl: string) => {
+      setShowCropper(false)
+      setOriginalImage(croppedDataUrl)
+      try {
+        const res = await fetch(croppedDataUrl)
+        const blob = await res.blob()
+        const croppedFile = new File([blob], rawFile?.name ?? 'cropped.png', { type: 'image/png' })
+        setOriginalFile(croppedFile)
+      } catch {
+        // fallback: use raw file
+        setOriginalFile(rawFile)
+      }
+    },
+    [rawFile]
+  )
+
+  // Skip crop → use raw image directly
+  const handleCropCancel = useCallback(() => {
+    setShowCropper(false)
+    if (rawImageSrc && rawFile) {
+      setOriginalImage(rawImageSrc)
+      setOriginalFile(rawFile)
+    }
+  }, [rawImageSrc, rawFile])
+
+  // Re-crop: open cropper with raw source
+  const handleReCrop = useCallback(() => {
+    if (rawImageSrc) setShowCropper(true)
+  }, [rawImageSrc])
 
   // Handle preset selection
   const handleSelectPreset = useCallback((id: string) => {
@@ -52,11 +99,9 @@ export default function Home() {
     setError(null)
 
     try {
-      // 纯前端处理，图片不上传服务器
       const startTime = Date.now()
       const processed = await processImageBrowser(originalFile, params)
       const duration = Date.now() - startTime
-
       console.log(`[process] Image processed in ${duration}ms`)
       setResult(processed)
     } catch (err) {
@@ -74,13 +119,10 @@ export default function Home() {
 
     try {
       const zip = new JSZip()
-
-      // Add images to zip
       const addToZip = (dataUrl: string, filename: string) => {
         const base64 = dataUrl.split(',')[1]
         zip.file(filename, base64, { base64: true })
       }
-
       addToZip(result.cover, 'cover.png')
       addToZip(result.layer1, 'layer1.png')
       addToZip(result.layer2, 'layer2.png')
@@ -88,14 +130,12 @@ export default function Home() {
 
       const content = await zip.generateAsync({ type: 'blob' })
       const url = URL.createObjectURL(content)
-
       const link = document.createElement('a')
       link.href = url
       link.download = 'light-painting.zip'
       document.body.appendChild(link)
       link.click()
       document.body.removeChild(link)
-
       URL.revokeObjectURL(url)
     } catch (err) {
       console.error('Download error:', err)
@@ -116,10 +156,7 @@ export default function Home() {
               </p>
             </div>
             {result && (
-              <button
-                onClick={handleDownloadAll}
-                className="btn btn-primary gap-2"
-              >
+              <button onClick={handleDownloadAll} className="btn btn-primary gap-2">
                 <Download className="w-4 h-4" />
                 <span>打包下载</span>
               </button>
@@ -148,9 +185,17 @@ export default function Home() {
           <div className="lg:col-span-2 space-y-6">
             {/* Upload Section */}
             <section>
-              <h2 className="text-sm font-medium text-text-secondary mb-3">
-                上传图片
-              </h2>
+              <div className="flex items-center justify-between mb-3">
+                <h2 className="text-sm font-medium text-text-secondary">上传图片</h2>
+                {originalImage && rawImageSrc && (
+                  <button
+                    onClick={handleReCrop}
+                    className="text-xs text-accent hover:text-accent-light transition-colors"
+                  >
+                    重新裁剪
+                  </button>
+                )}
+              </div>
               <UploadZone onUpload={handleUpload} />
             </section>
 
@@ -202,6 +247,16 @@ export default function Home() {
           </p>
         </div>
       </footer>
+
+      {/* Image Cropper Modal */}
+      {showCropper && rawImageSrc && (
+        <ImageCropper
+          imageSrc={rawImageSrc}
+          outputSize={outputSize}
+          onConfirm={handleCropConfirm}
+          onCancel={handleCropCancel}
+        />
+      )}
     </div>
   )
 }

@@ -66,54 +66,6 @@ export function ParamsPanel({
           </div>
         </div>
 
-        {/* Cover Params */}
-        <ParamSection title="封面纸参数">
-          {Object.entries(PARAM_META.cover).map(([key, meta]) => (
-            <ParamSlider
-              key={key}
-              label={meta.label}
-              tip={meta.tip}
-              min={meta.min}
-              max={meta.max}
-              step={meta.step}
-              value={params.cover[key as keyof ProcessParams['cover']]}
-              onChange={(v) => updateCover(key as keyof ProcessParams['cover'], v)}
-            />
-          ))}
-        </ParamSection>
-
-        {/* Layer 1 Params */}
-        <ParamSection title="第一层透光层（细节层）">
-          {Object.entries(PARAM_META.layer1).map(([key, meta]) => (
-            <ParamSlider
-              key={key}
-              label={meta.label}
-              tip={meta.tip}
-              min={meta.min}
-              max={meta.max}
-              step={meta.step}
-              value={params.layer1[key as keyof ProcessParams['layer1']]}
-              onChange={(v) => updateLayer1(key as keyof ProcessParams['layer1'], v)}
-            />
-          ))}
-        </ParamSection>
-
-        {/* Layer 2 Params */}
-        <ParamSection title="第二层透光层（氛围层）">
-          {Object.entries(PARAM_META.layer2).map(([key, meta]) => (
-            <ParamSlider
-              key={key}
-              label={meta.label}
-              tip={meta.tip}
-              min={meta.min}
-              max={meta.max}
-              step={meta.step}
-              value={params.layer2[key as keyof ProcessParams['layer2']]}
-              onChange={(v) => updateLayer2(key as keyof ProcessParams['layer2'], v)}
-            />
-          ))}
-        </ParamSection>
-
         {/* Common Params */}
         <ParamSection title="通用参数">
           {/* Size preset */}
@@ -179,6 +131,54 @@ export function ParamsPanel({
               onChange={(v) => updateCommon('generatePreview', v)}
             />
           </div>
+        </ParamSection>
+
+        {/* Cover Params */}
+        <ParamSection title="封面纸参数">
+          {Object.entries(PARAM_META.cover).map(([key, meta]) => (
+            <ParamSlider
+              key={key}
+              label={meta.label}
+              tip={meta.tip}
+              min={meta.min}
+              max={meta.max}
+              step={meta.step}
+              value={params.cover[key as keyof ProcessParams['cover']]}
+              onChange={(v) => updateCover(key as keyof ProcessParams['cover'], v)}
+            />
+          ))}
+        </ParamSection>
+
+        {/* Layer 1 Params */}
+        <ParamSection title="第一层透光层（细节层）">
+          {Object.entries(PARAM_META.layer1).map(([key, meta]) => (
+            <ParamSlider
+              key={key}
+              label={meta.label}
+              tip={meta.tip}
+              min={meta.min}
+              max={meta.max}
+              step={meta.step}
+              value={params.layer1[key as keyof ProcessParams['layer1']]}
+              onChange={(v) => updateLayer1(key as keyof ProcessParams['layer1'], v)}
+            />
+          ))}
+        </ParamSection>
+
+        {/* Layer 2 Params */}
+        <ParamSection title="第二层透光层（氛围层）">
+          {Object.entries(PARAM_META.layer2).map(([key, meta]) => (
+            <ParamSlider
+              key={key}
+              label={meta.label}
+              tip={meta.tip}
+              min={meta.min}
+              max={meta.max}
+              step={meta.step}
+              value={params.layer2[key as keyof ProcessParams['layer2']]}
+              onChange={(v) => updateLayer2(key as keyof ProcessParams['layer2'], v)}
+            />
+          ))}
         </ParamSection>
       </div>
     </div>

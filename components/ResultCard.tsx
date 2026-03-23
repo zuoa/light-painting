@@ -8,9 +8,10 @@ interface ResultCardProps {
   imageSrc: string | null
   filename: string
   isLoading?: boolean
+  onPreview?: (src: string) => void
 }
 
-export function ResultCard({ title, subtitle, imageSrc, filename, isLoading }: ResultCardProps) {
+export function ResultCard({ title, subtitle, imageSrc, filename, isLoading, onPreview }: ResultCardProps) {
   const handleDownload = () => {
     if (!imageSrc) return
     const link = document.createElement('a')
@@ -41,17 +42,27 @@ export function ResultCard({ title, subtitle, imageSrc, filename, isLoading }: R
       </div>
 
       {/* Image */}
-      <div className="aspect-[5/7] bg-surface-1 relative overflow-hidden">
+      <div
+        className={`aspect-[5/7] bg-surface-1 relative overflow-hidden ${imageSrc && !isLoading && onPreview ? 'cursor-zoom-in' : ''}`}
+        onClick={() => imageSrc && !isLoading && onPreview?.(imageSrc)}
+      >
         {isLoading ? (
           <div className="absolute inset-0 flex items-center justify-center">
             <div className="spinner text-accent" />
           </div>
         ) : imageSrc ? (
-          <img
-            src={imageSrc}
-            alt={title}
-            className="w-full h-full object-contain"
-          />
+          <>
+            <img
+              src={imageSrc}
+              alt={title}
+              className="w-full h-full object-contain"
+            />
+            {onPreview && (
+              <div className="absolute inset-0 flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity bg-black/30">
+                <span className="text-white text-xs bg-black/50 px-2 py-1 rounded">点击预览大图</span>
+              </div>
+            )}
+          </>
         ) : (
           <div className="absolute inset-0 flex items-center justify-center text-muted">
             <span className="text-sm">等待生成</span>
