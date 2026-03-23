@@ -1,0 +1,16 @@
+name = "light-painting"
+compatibility_date = "2026-03-23"
+compatibility_flags = ["nodejs_compat"]
+
+# Cloudflare Pages 配置
+[build]
+command = "npm run build"
+output_directory = ".next"
+
+# 环境变量
+[env.production]
+# 如需使用 Cloudflare Images API，在此处配置 API Token
+# IMAGES_API_TOKEN = "your_token_here"
+
+# 本地开发
+[env.development]

@@ -1,0 +1,132 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --bg-primary: #0f0f11;
+  --bg-surface: #18181c;
+  --bg-surface-2: #22222a;
+  --bg-surface-3: #2c2c38;
+  --primary: #f5f5f7;
+  --text-secondary: #a1a1aa;
+  --text-muted: #6b7280;
+  --accent: #c8a96e;
+  --accent-light: #e8c98e;
+  --accent-muted: #8a7050;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  background-color: var(--bg-primary);
+  color: var(--primary);
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--bg-surface);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--bg-surface-3);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--accent-muted);
+}
+
+/* Slider styling */
+input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  background: transparent;
+  cursor: pointer;
+  width: 100%;
+}
+
+input[type="range"]::-webkit-slider-runnable-track {
+  background: var(--bg-surface-3);
+  height: 4px;
+  border-radius: 2px;
+}
+
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  margin-top: -6px;
+  background-color: var(--accent);
+  height: 16px;
+  width: 16px;
+  border-radius: 50%;
+  transition: all 0.15s ease;
+}
+
+input[type="range"]::-webkit-slider-thumb:hover {
+  background-color: var(--accent-light);
+  transform: scale(1.1);
+}
+
+/* Button styling */
+.btn {
+  @apply inline-flex items-center justify-center px-4 py-2 rounded-lg font-medium transition-all duration-200;
+}
+
+.btn-primary {
+  @apply bg-accent text-surface font-semibold;
+}
+
+.btn-primary:hover {
+  @apply bg-accent-light;
+}
+
+.btn-secondary {
+  @apply bg-surface-2 text-primary border border-surface-3;
+}
+
+.btn-secondary:hover {
+  @apply bg-surface-3;
+}
+
+.btn:disabled {
+  @apply opacity-50 cursor-not-allowed;
+}
+
+/* Card styling */
+.card {
+  @apply bg-surface rounded-xl border border-surface-2 overflow-hidden;
+}
+
+/* Dropzone */
+.dropzone {
+  @apply border-2 border-dashed border-surface-3 rounded-xl transition-all duration-200;
+}
+
+.dropzone.drag-active {
+  @apply border-accent bg-surface-2;
+}
+
+/* Loading spinner */
+.spinner {
+  @apply inline-block w-5 h-5 border-2 border-current border-t-transparent rounded-full animate-spin;
+}
+
+/* Toast notification */
+.toast {
+  @apply fixed bottom-6 right-6 px-6 py-3 rounded-lg shadow-lg transition-all duration-300 transform translate-y-0;
+}
+
+.toast-success {
+  @apply bg-green-600 text-white;
+}
+
+.toast-error {
+  @apply bg-red-600 text-white;
+}
