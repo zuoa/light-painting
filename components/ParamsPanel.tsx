@@ -150,7 +150,7 @@ export function ParamsPanel({
         </ParamSection>
 
         {/* Layer 1 Params */}
-        <ParamSection title="第一层透光层（细节层）">
+        <ParamSection title="第一层透光层（主体层）">
           {Object.entries(PARAM_META.layer1).map(([key, meta]) => (
             <ParamSlider
               key={key}
@@ -166,7 +166,7 @@ export function ParamsPanel({
         </ParamSection>
 
         {/* Layer 2 Params */}
-        <ParamSection title="第二层透光层（氛围层）">
+        <ParamSection title="第二层透光层（发光层）">
           {Object.entries(PARAM_META.layer2).map(([key, meta]) => (
             <ParamSlider
               key={key}

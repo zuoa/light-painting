@@ -3,6 +3,112 @@
 
 import type { ProcessParams, ProcessResult } from './types'
 
+function clamp8(value: number): number {
+  return Math.min(255, Math.max(0, value))
+}
+
+function lerp(a: number, b: number, t: number): number {
+  return a + (b - a) * t
+}
+
+function smoothstep(edge0: number, edge1: number, x: number): number {
+  if (edge0 === edge1) return x < edge0 ? 0 : 1
+  const t = Math.max(0, Math.min(1, (x - edge0) / (edge1 - edge0)))
+  return t * t * (3 - 2 * t)
+}
+
+function createLuminanceMask(
+  data: Uint8ClampedArray,
+  width: number,
+  height: number
+): Float32Array {
+  const mask = new Float32Array(width * height)
+
+  for (let i = 0, p = 0; i < mask.length; i++, p += 4) {
+    const lum = data[p] * 0.2126 + data[p + 1] * 0.7152 + data[p + 2] * 0.0722
+    mask[i] = lum / 255
+  }
+
+  return mask
+}
+
+function blurMask(
+  mask: Float32Array,
+  width: number,
+  height: number,
+  radius: number
+): Float32Array {
+  const r = Math.max(0, Math.round(radius))
+  if (r <= 0) return mask.slice()
+
+  const horizontal = new Float32Array(mask.length)
+  const output = new Float32Array(mask.length)
+
+  for (let y = 0; y < height; y++) {
+    const rowOffset = y * width
+    for (let x = 0; x < width; x++) {
+      let sum = 0
+      let count = 0
+      for (let dx = -r; dx <= r; dx++) {
+        const sx = Math.max(0, Math.min(width - 1, x + dx))
+        sum += mask[rowOffset + sx]
+        count++
+      }
+      horizontal[rowOffset + x] = sum / count
+    }
+  }
+
+  for (let y = 0; y < height; y++) {
+    const rowOffset = y * width
+    for (let x = 0; x < width; x++) {
+      let sum = 0
+      let count = 0
+      for (let dy = -r; dy <= r; dy++) {
+        const sy = Math.max(0, Math.min(height - 1, y + dy))
+        sum += horizontal[sy * width + x]
+        count++
+      }
+      output[rowOffset + x] = sum / count
+    }
+  }
+
+  return output
+}
+
+function createEdgeMask(
+  data: Uint8ClampedArray,
+  width: number,
+  height: number
+): Float32Array {
+  const lum = createLuminanceMask(data, width, height)
+  const output = new Float32Array(width * height)
+
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const idx = y * width + x
+      const left = lum[y * width + Math.max(0, x - 1)]
+      const right = lum[y * width + Math.min(width - 1, x + 1)]
+      const top = lum[Math.max(0, y - 1) * width + x]
+      const bottom = lum[Math.min(height - 1, y + 1) * width + x]
+
+      const gradient = Math.abs(right - left) + Math.abs(bottom - top)
+      output[idx] = Math.min(1, gradient * 1.6)
+    }
+  }
+
+  return output
+}
+
+function applyMaskBlur(
+  ctx: CanvasRenderingContext2D,
+  width: number,
+  height: number,
+  radius: number
+): void {
+  if (radius <= 0) return
+  applyStackBlur(ctx, width, height, radius)
+}
+
 // ─── Main entry point ────────────────────────────────────────────────────────
 
 export async function processImageBrowser(
@@ -172,47 +278,54 @@ async function generateLayer1(
   const ctx = getContext(canvas)
   const imageData = ctx.getImageData(0, 0, targetSize.width, targetSize.height)
   const data = imageData.data
+  const width = targetSize.width
+  const height = targetSize.height
+  const subjectMask = blurMask(createLuminanceMask(data, width, height), width, height, 12)
+  const edgeMask = blurMask(createEdgeMask(data, width, height), width, height, 1)
 
   for (let i = 0; i < data.length; i += 4) {
+    const idx = i >> 2
     let r = data[i]
     let g = data[i + 1]
     let b = data[i + 2]
 
-    // Use luminance to drive gamma/contrast, then apply to each channel proportionally
     const lum = r * 0.2126 + g * 0.7152 + b * 0.0722
     if (lum === 0) continue
+    const lumNorm = lum / 255
 
-    // Gamma
-    const lumGamma = Math.pow(lum / 255, params.gamma) * 255
+    const subjectFocus = smoothstep(0.12, 0.78, subjectMask[idx])
+    const edgeBoost = edgeMask[idx] * params.edgeStrength
+    const middleBand = 1 - Math.min(1, Math.abs(lumNorm - 0.52) / 0.52)
+    const structureWeight = Math.max(subjectFocus * 0.75, middleBand * 0.55)
 
-    // Contrast
-    let lumFinal = ((lumGamma - 128) * params.contrast) + 128
+    let lumGamma = Math.pow(lumNorm, params.gamma)
+    lumGamma = lerp(lumNorm, lumGamma, 0.72)
 
-    // Shadow crush
+    let lumFinal = ((lumGamma * 255 - 128) * params.contrast) + 128
+
     if (lumFinal < 128) {
       lumFinal = Math.pow(lumFinal / 128, 1 + params.shadowCrush) * 128
     }
 
-    // Invert if requested
+    lumFinal *= lerp(0.38, 1.12, structureWeight)
+    lumFinal += edgeBoost * 72
+
     if (common.invertLayers) {
       lumFinal = 255 - lumFinal
     }
 
-    lumFinal = Math.min(255, Math.max(0, lumFinal))
-
-    // Scale each channel by the same ratio as lum changed
+    lumFinal = clamp8(lumFinal)
     const ratio = lumFinal / lum
-    data[i]     = Math.min(255, Math.max(0, r * ratio))
-    data[i + 1] = Math.min(255, Math.max(0, g * ratio))
-    data[i + 2] = Math.min(255, Math.max(0, b * ratio))
+    const desat = lerp(1, 0.72, subjectFocus)
+
+    data[i] = clamp8(r * ratio * desat)
+    data[i + 1] = clamp8(g * ratio * desat)
+    data[i + 2] = clamp8(b * ratio * (desat + 0.08))
   }
 
   ctx.putImageData(imageData, 0, 0)
 
-  // Apply blur
-  if (params.blurRadius > 0) {
-    applyStackBlur(ctx, targetSize.width, targetSize.height, params.blurRadius)
-  }
+  applyMaskBlur(ctx, width, height, params.blurRadius)
 
   return canvas
 }
@@ -229,46 +342,53 @@ async function generateLayer2(
   const ctx = getContext(canvas)
   const imageData = ctx.getImageData(0, 0, targetSize.width, targetSize.height)
   const data = imageData.data
+  const width = targetSize.width
+  const height = targetSize.height
+  const baseLumMask = createLuminanceMask(data, width, height)
+  const glowMask = blurMask(baseLumMask, width, height, Math.max(8, Math.round(params.highlightSpread * 24)))
 
   for (let i = 0; i < data.length; i += 4) {
+    const idx = i >> 2
     let r = data[i]
     let g = data[i + 1]
     let b = data[i + 2]
 
     const lum = r * 0.2126 + g * 0.7152 + b * 0.0722
     if (lum === 0) continue
+    const lumNorm = lum / 255
 
-    // Gamma
-    let lumFinal = Math.pow(lum / 255, params.gamma) * 255
+    let lumFinal = Math.pow(lumNorm, params.gamma) * 255
 
-    // Contrast
     lumFinal = ((lumFinal - 128) * params.contrast) + 128
 
-    // Atmosphere - boost highlights
-    if (lumFinal > 180) {
-      lumFinal += (lumFinal - 180) * params.atmosphereStrength
-    }
+    const glow = smoothstep(0.35, 0.92, glowMask[idx])
+    const warmFocus = smoothstep(0.45, 0.95, lumNorm)
+    const atmosphere = glow * (0.65 + params.atmosphereStrength * 0.7)
+    lumFinal = lerp(lumFinal, 255, atmosphere * 0.68)
+    lumFinal += warmFocus * params.atmosphereStrength * 26
 
-    // Invert if requested
+    let nr = r * 0.35 + lumFinal * 0.65
+    let ng = g * 0.3 + lumFinal * 0.56
+    let nb = b * 0.42 + lumFinal * 0.35
+
+    nr += glow * (18 + params.atmosphereStrength * 22)
+    ng += glow * (8 + params.atmosphereStrength * 8)
+    nb -= glow * 10
+
     if (common.invertLayers) {
-      lumFinal = 255 - lumFinal
+      nr = 255 - nr
+      ng = 255 - ng
+      nb = 255 - nb
     }
 
-    lumFinal = Math.min(255, Math.max(0, lumFinal))
-
-    // Scale each channel by the same ratio as lum changed
-    const ratio = lumFinal / lum
-    data[i]     = Math.min(255, Math.max(0, r * ratio))
-    data[i + 1] = Math.min(255, Math.max(0, g * ratio))
-    data[i + 2] = Math.min(255, Math.max(0, b * ratio))
+    data[i] = clamp8(nr)
+    data[i + 1] = clamp8(ng)
+    data[i + 2] = clamp8(nb)
   }
 
   ctx.putImageData(imageData, 0, 0)
 
-  // Apply stronger blur
-  if (params.blurRadius > 0) {
-    applyStackBlur(ctx, targetSize.width, targetSize.height, params.blurRadius)
-  }
+  applyMaskBlur(ctx, width, height, params.blurRadius)
 
   return canvas
 }
@@ -287,34 +407,48 @@ async function generatePreview(
   // Draw cover as base
   ctx.drawImage(coverCanvas, 0, 0)
 
-  // Add layer glows using screen blend mode
+  // Add layer glows using a conservative screen blend to avoid clipping highlights
   ctx.globalCompositeOperation = 'screen'
 
-  // Layer 1 glow
+  // Layer 1 glow: keep detail, but don't wash out the cover
+  ctx.globalAlpha = 0.26
   ctx.drawImage(layer1Canvas, 0, 0)
 
-  // Layer 2 glow (brighter)
-  ctx.globalAlpha = 0.8
+  // Layer 2 glow: softer atmosphere contribution
+  ctx.globalAlpha = 0.16
   ctx.drawImage(layer2Canvas, 0, 0)
   ctx.globalAlpha = 1.0
 
   // Reset composite
   ctx.globalCompositeOperation = 'source-over'
 
-  // Final polish
+  // Compress highlights so bright regions keep texture instead of blowing out.
   const imageData = ctx.getImageData(0, 0, targetSize.width, targetSize.height)
   const data = imageData.data
 
   for (let i = 0; i < data.length; i += 4) {
-    // Slight brightness boost
-    data[i] = Math.min(255, data[i] * 1.05)
-    data[i + 1] = Math.min(255, data[i + 1] * 1.05)
-    data[i + 2] = Math.min(255, data[i + 2] * 1.05)
+    data[i] = compressPreviewChannel(data[i])
+    data[i + 1] = compressPreviewChannel(data[i + 1])
+    data[i + 2] = compressPreviewChannel(data[i + 2])
   }
 
   ctx.putImageData(imageData, 0, 0)
 
   return canvas
+}
+
+function compressPreviewChannel(value: number): number {
+  let v = (value / 255) * 0.97
+
+  if (v > 0.62) {
+    v = 0.62 + (v - 0.62) * 0.52
+  }
+
+  if (v > 0.84) {
+    v = 0.84 + (v - 0.84) * 0.35
+  }
+
+  return clamp8(Math.round(v * 255))
 }
 
 // ─── Stack Blur Algorithm (fast approximate Gaussian blur) ───────────────────

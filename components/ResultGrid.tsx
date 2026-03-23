@@ -69,7 +69,7 @@ export function ResultGrid({ originalImage, result, isLoading }: ResultGridProps
               />
               <ResultCard
                 title="第一层透光层"
-                subtitle="Layer 1 - 细节层"
+                subtitle="Layer 1 - 主体层"
                 imageSrc={result?.layer1 || null}
                 filename="layer1.png"
                 isLoading={isLoading}
@@ -77,7 +77,7 @@ export function ResultGrid({ originalImage, result, isLoading }: ResultGridProps
               />
               <ResultCard
                 title="第二层透光层"
-                subtitle="Layer 2 - 氛围层"
+                subtitle="Layer 2 - 发光层"
                 imageSrc={result?.layer2 || null}
                 filename="layer2.png"
                 isLoading={isLoading}
