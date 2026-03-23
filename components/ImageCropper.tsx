@@ -28,21 +28,25 @@ export function ImageCropper({ imageSrc, outputSize, onConfirm, onCancel }: Imag
   frameH = Math.round(frameH)
 
   const [imgLoaded, setImgLoaded] = useState(false)
-  const [imgSize, setImgSize] = useState({ w: 0, h: 0 })
-  const [scale, setScale] = useState(1)
+  const [displaySize, setDisplaySize] = useState({ w: 0, h: 0 })
   const [offset, setOffset] = useState({ x: 0, y: 0 })
   const [isDragging, setIsDragging] = useState(false)
-  const dragStart = useRef({ mx: 0, my: 0, ox: 0, oy: 0 })
+
+  // Refs for event handlers (avoid stale closures)
+  const displaySizeRef = useRef({ w: 0, h: 0 })
   const offsetRef = useRef({ x: 0, y: 0 })
+  const imgNaturalRef = useRef({ w: 0, h: 0 })
   const containerRef = useRef<HTMLDivElement>(null)
-  const scaleRef = useRef(1)
-  const imgSizeRef = useRef({ w: 0, h: 0 })
-  const imgElRef = useRef<HTMLImageElement | null>(null)
+  const dragStart = useRef({ mx: 0, my: 0, ox: 0, oy: 0 })
+
+  // Keep refs in sync with state
+  useEffect(() => { displaySizeRef.current = displaySize }, [displaySize])
+  useEffect(() => { offsetRef.current = offset }, [offset])
 
   const clampOffset = useCallback(
-    (ox: number, oy: number, sc: number, iw: number, ih: number) => {
-      const maxOx = Math.max(0, (iw * sc - frameW) / 2)
-      const maxOy = Math.max(0, (ih * sc - frameH) / 2)
+    (ox: number, oy: number, dw: number, dh: number) => {
+      const maxOx = Math.max(0, (dw - frameW) / 2)
+      const maxOy = Math.max(0, (dh - frameH) / 2)
       return {
         x: Math.max(-maxOx, Math.min(maxOx, ox)),
         y: Math.max(-maxOy, Math.min(maxOy, oy)),
@@ -51,69 +55,90 @@ export function ImageCropper({ imageSrc, outputSize, onConfirm, onCancel }: Imag
     [frameW, frameH]
   )
 
-  // Keep offsetRef in sync with offset state
-  useEffect(() => { offsetRef.current = offset }, [offset])
-
+  // Load image and set initial display size (fit to frame)
   useEffect(() => {
+    setImgLoaded(false)
     const img = new window.Image()
     img.onload = () => {
       const iw = img.naturalWidth
       const ih = img.naturalHeight
-      setImgSize({ w: iw, h: ih })
-      imgSizeRef.current = { w: iw, h: ih }
-      const initScale = Math.max(frameW / iw, frameH / ih)
-      setScale(initScale)
-      scaleRef.current = initScale
+      imgNaturalRef.current = { w: iw, h: ih }
+
+      // Calculate scale to fit image in frame
+      const scale = Math.max(frameW / iw, frameH / ih)
+      const dw = iw * scale
+      const dh = ih * scale
+
+      setDisplaySize({ w: dw, h: dh })
+      displaySizeRef.current = { w: dw, h: dh }
       setOffset({ x: 0, y: 0 })
+      offsetRef.current = { x: 0, y: 0 }
       setImgLoaded(true)
     }
     img.src = imageSrc
   }, [imageSrc, frameW, frameH])
 
-  // Attach non-passive wheel listener
+  // Wheel zoom handler
   useEffect(() => {
     const el = containerRef.current
     if (!el) return
+
     const handler = (e: WheelEvent) => {
       e.preventDefault()
-      const { w: iw, h: ih } = imgSizeRef.current
-      if (iw === 0 || ih === 0) return
+      const { w: iw, h: ih } = imgNaturalRef.current
+      const { w: dw, h: dh } = displaySizeRef.current
+      if (iw === 0 || ih === 0 || dw === 0 || dh === 0) return
+
+      // Calculate min scale (fit to frame)
       const minScale = Math.max(frameW / iw, frameH / ih)
-      const maxScale = minScale * MAX_SCALE_FACTOR
+      const currentScale = dw / iw
+
+      // Calculate new scale
       const delta = e.deltaY < 0 ? 1.1 : 1 / 1.1
-      const newScale = Math.max(minScale, Math.min(maxScale, scaleRef.current * delta))
-      scaleRef.current = newScale
-      setScale(newScale)
-      setOffset((prev) => clampOffset(prev.x, prev.y, newScale, iw, ih))
+      const newScale = Math.max(minScale, Math.min(minScale * MAX_SCALE_FACTOR, currentScale * delta))
+
+      // Calculate zoom center relative to image
+      const rect = el.getBoundingClientRect()
+      const mouseX = e.clientX - rect.left - frameW / 2
+      const mouseY = e.clientY - rect.top - frameH / 2
+
+      // Zoom towards mouse pointer
+      const newDw = iw * newScale
+      const newDh = ih * newScale
+      const scaleRatio = newScale / currentScale
+
+      const newOx = mouseX - (mouseX - offsetRef.current.x) * scaleRatio
+      const newOy = mouseY - (mouseY - offsetRef.current.y) * scaleRatio
+
+      const clamped = clampOffset(newOx, newOy, newDw, newDh)
+
+      setDisplaySize({ w: newDw, h: newDh })
+      setOffset(clamped)
     }
+
     el.addEventListener('wheel', handler, { passive: false })
     return () => el.removeEventListener('wheel', handler)
   }, [frameW, frameH, clampOffset])
 
-  const handleMouseDown = useCallback(
-    (e: React.MouseEvent) => {
-      e.preventDefault()
-      setIsDragging(true)
-      dragStart.current = {
-        mx: e.clientX,
-        my: e.clientY,
-        ox: offsetRef.current.x,
-        oy: offsetRef.current.y,
-      }
-    },
-    []
-  )
+  // Mouse drag handlers
+  const handleMouseDown = useCallback((e: React.MouseEvent) => {
+    e.preventDefault()
+    setIsDragging(true)
+    dragStart.current = {
+      mx: e.clientX,
+      my: e.clientY,
+      ox: offsetRef.current.x,
+      oy: offsetRef.current.y,
+    }
+  }, [])
 
-  const handleMouseMove = useCallback(
-    (e: React.MouseEvent) => {
-      if (!isDragging) return
-      const dx = e.clientX - dragStart.current.mx
-      const dy = e.clientY - dragStart.current.my
-      const { w: iw, h: ih } = imgSizeRef.current
-      setOffset(clampOffset(dragStart.current.ox + dx, dragStart.current.oy + dy, scaleRef.current, iw, ih))
-    },
-    [isDragging, clampOffset]
-  )
+  const handleMouseMove = useCallback((e: React.MouseEvent) => {
+    if (!isDragging) return
+    const dx = e.clientX - dragStart.current.mx
+    const dy = e.clientY - dragStart.current.my
+    const { w: dw, h: dh } = displaySizeRef.current
+    setOffset(clampOffset(dragStart.current.ox + dx, dragStart.current.oy + dy, dw, dh))
+  }, [isDragging, clampOffset])
 
   const handleMouseUp = useCallback(() => setIsDragging(false), [])
 
@@ -126,33 +151,34 @@ export function ImageCropper({ imageSrc, outputSize, onConfirm, onCancel }: Imag
     setIsDragging(true)
   }, [])
 
-  const handleTouchMove = useCallback(
-    (e: React.TouchEvent) => {
-      if (e.touches.length !== 1 || !isDragging) return
-      e.preventDefault()
-      const t = e.touches[0]
-      const dx = t.clientX - lastTouch.current.x
-      const dy = t.clientY - lastTouch.current.y
-      const { w: iw, h: ih } = imgSizeRef.current
-      setOffset(clampOffset(lastTouch.current.ox + dx, lastTouch.current.oy + dy, scaleRef.current, iw, ih))
-    },
-    [isDragging, clampOffset]
-  )
+  const handleTouchMove = useCallback((e: React.TouchEvent) => {
+    if (e.touches.length !== 1 || !isDragging) return
+    e.preventDefault()
+    const t = e.touches[0]
+    const dx = t.clientX - lastTouch.current.x
+    const dy = t.clientY - lastTouch.current.y
+    const { w: dw, h: dh } = displaySizeRef.current
+    setOffset(clampOffset(lastTouch.current.ox + dx, lastTouch.current.oy + dy, dw, dh))
+  }, [isDragging, clampOffset])
 
+  // Confirm crop
   const handleConfirm = useCallback(() => {
-    const { w: iw, h: ih } = imgSizeRef.current
-    if (iw === 0 || ih === 0) return
-    const sc = scaleRef.current
+    const { w: iw, h: ih } = imgNaturalRef.current
+    const { w: dw, h: dh } = displaySizeRef.current
+    if (iw === 0 || ih === 0 || dw === 0 || dh === 0) return
+
+    const scale = dw / iw
+
     const canvas = document.createElement('canvas')
     canvas.width = outputSize.width
     canvas.height = outputSize.height
     const ctx = canvas.getContext('2d')!
 
-    // Crop region in original image coordinates
-    const cropX = iw / 2 - (frameW / 2 + offset.x) / sc
-    const cropY = ih / 2 - (frameH / 2 + offset.y) / sc
-    const cropW = frameW / sc
-    const cropH = frameH / sc
+    // Calculate crop region in original image coordinates
+    const cropX = iw / 2 - (frameW / 2 - offset.x) / scale
+    const cropY = ih / 2 - (frameH / 2 - offset.y) / scale
+    const cropW = frameW / scale
+    const cropH = frameH / scale
 
     const img = new window.Image()
     img.onload = () => {
@@ -162,17 +188,9 @@ export function ImageCropper({ imageSrc, outputSize, onConfirm, onCancel }: Imag
     img.src = imageSrc
   }, [imageSrc, offset, frameW, frameH, outputSize, onConfirm])
 
-  // Calculate display scale ratio (current scale / base scale)
-  // base scale is the scale that fits image to frame
-  const baseScale = imgSize.w > 0 && imgSize.h > 0
-    ? Math.max(frameW / imgSize.w, frameH / imgSize.h)
-    : 1
-  const displayScaleRatio = scale / baseScale
-
-  // Center the image in frame, then apply offset
-  // Image natural size is used as base, then CSS transform scales it
-  const centerX = (frameW - imgSize.w) / 2
-  const centerY = (frameH - imgSize.h) / 2
+  // Image position
+  const imgLeft = (frameW - displaySize.w) / 2 + offset.x
+  const imgTop = (frameH - displaySize.h) / 2 + offset.y
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 p-4">
@@ -211,20 +229,17 @@ export function ImageCropper({ imageSrc, outputSize, onConfirm, onCancel }: Imag
                 加载中...
               </div>
             )}
-            {imgLoaded && imgSize.w > 0 && imgSize.h > 0 && (
+            {imgLoaded && displaySize.w > 0 && displaySize.h > 0 && (
               <img
-                ref={imgElRef}
                 src={imageSrc}
                 alt="crop"
                 draggable={false}
                 style={{
                   position: 'absolute',
-                  left: centerX + offset.x,
-                  top: centerY + offset.y,
-                  width: imgSize.w,
-                  height: imgSize.h,
-                  transform: `scale(${displayScaleRatio})`,
-                  transformOrigin: 'center center',
+                  left: imgLeft,
+                  top: imgTop,
+                  width: displaySize.w,
+                  height: displaySize.h,
                   pointerEvents: 'none',
                   userSelect: 'none',
                 }}
