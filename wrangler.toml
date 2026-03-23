@@ -1,11 +1,12 @@
 name = "light-painting"
 compatibility_date = "2026-03-23"
 compatibility_flags = ["nodejs_compat"]
+pages_build_output_dir = "dist"
 
 # Cloudflare Pages 配置
 [build]
 command = "npm run build"
-output_directory = ".next"
+output_directory = "dist"
 
 # 环境变量
 [env.production]
