@@ -346,7 +346,7 @@ function applyStackBlur(
   const vmin = new Int32Array(Math.max(width, height))
 
   let yw = 0
-  const mulSum = 1 / ((r + 1) * (r + 1))
+  const mulSum = 1 / ((2 * r + 1) * (2 * r + 1))
 
   // Horizontal pass
   for (let y = 0; y < height; y++) {
