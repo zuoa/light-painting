@@ -14,6 +14,10 @@ const FRAME_MAX_W = 460
 const FRAME_MAX_H = 560
 const MAX_SCALE_FACTOR = 8
 
+function clamp(value: number, min: number, max: number) {
+  return Math.max(min, Math.min(max, value))
+}
+
 export function ImageCropper({ imageSrc, outputSize, onConfirm: confirmCrop, onCancel }: ImageCropperProps) {
   const aspectRatio = outputSize.width / outputSize.height
 
@@ -31,8 +35,7 @@ export function ImageCropper({ imageSrc, outputSize, onConfirm: confirmCrop, onC
   const [scale, setScale] = useState(1)
   const [offset, setOffset] = useState({ x: 0, y: 0 })
 
-  // Refs for event handlers
-  const containerRef = useRef<HTMLDivElement>(null)
+  // Refs for drag gestures
   const dragStartRef = useRef({ mx: 0, my: 0, ox: 0, oy: 0 })
 
   // Load image
@@ -53,55 +56,25 @@ export function ImageCropper({ imageSrc, outputSize, onConfirm: confirmCrop, onC
     img.src = imageSrc
   }, [imageSrc, frameW, frameH])
 
-  // Wheel zoom - centered on frame center
-  useEffect(() => {
-    const el = containerRef.current
-    if (!el) return
+  const onWheel = useCallback((e: React.WheelEvent<HTMLDivElement>) => {
+    e.preventDefault()
+    if (!natural.w || !natural.h) return
 
-    const onWheel = (e: WheelEvent) => {
-      e.preventDefault()
-      if (!natural.w || !natural.h) return
+    const minScale = Math.max(frameW / natural.w, frameH / natural.h)
+    const delta = e.deltaY < 0 ? 1.1 : 1 / 1.1
+    const nextScale = clamp(scale * delta, minScale, minScale * MAX_SCALE_FACTOR)
+    const ratio = nextScale / scale
 
-      // Calculate new scale
-      const minScale = Math.max(frameW / natural.w, frameH / natural.h)
-      const delta = e.deltaY < 0 ? 1.1 : 1 / 1.1
-      const newScale = Math.max(minScale, Math.min(minScale * MAX_SCALE_FACTOR, scale * delta))
+    const nextDisplayW = natural.w * nextScale
+    const nextDisplayH = natural.h * nextScale
+    const maxOffsetX = Math.max(0, (nextDisplayW - frameW) / 2)
+    const maxOffsetY = Math.max(0, (nextDisplayH - frameH) / 2)
 
-      // When zooming centered on frame center:
-      // The image center should stay at frame center, but we need to adjust offset
-      // to keep the same visual center point
-      //
-      // If offset is 0, image center aligns with frame center.
-      // When scale changes, if offset stays 0, the center point stays fixed.
-      // But if offset is non-zero, we need to scale the offset too.
-      //
-      // Point at offset (x, y) from center at scale s:
-      // screen pos = (frameW/2 + x, frameH/2 + y)
-      // This corresponds to image pixel at (x/s, y/s) from image center
-      //
-      // At new scale s', to show same image pixel at same screen pos:
-      // x' = x * (s'/s)
-      // So offset scales with scale ratio
-
-      const ratio = newScale / scale
-      const newOffsetX = offset.x * ratio
-      const newOffsetY = offset.y * ratio
-
-      // Clamp offset
-      const newDisplayW = natural.w * newScale
-      const newDisplayH = natural.h * newScale
-      const maxOffsetX = Math.max(0, (newDisplayW - frameW) / 2)
-      const maxOffsetY = Math.max(0, (newDisplayH - frameH) / 2)
-
-      setScale(newScale)
-      setOffset({
-        x: Math.max(-maxOffsetX, Math.min(maxOffsetX, newOffsetX)),
-        y: Math.max(-maxOffsetY, Math.min(maxOffsetY, newOffsetY)),
-      })
-    }
-
-    el.addEventListener('wheel', onWheel, { passive: false })
-    return () => el.removeEventListener('wheel', onWheel)
+    setScale(nextScale)
+    setOffset({
+      x: clamp(offset.x * ratio, -maxOffsetX, maxOffsetX),
+      y: clamp(offset.y * ratio, -maxOffsetY, maxOffsetY),
+    })
   }, [natural.w, natural.h, frameW, frameH, scale, offset])
 
   // Drag handlers
@@ -123,8 +96,8 @@ export function ImageCropper({ imageSrc, outputSize, onConfirm: confirmCrop, onC
     const maxOffsetY = Math.max(0, (displayH - frameH) / 2)
 
     setOffset({
-      x: Math.max(-maxOffsetX, Math.min(maxOffsetX, ox + dx)),
-      y: Math.max(-maxOffsetY, Math.min(maxOffsetY, oy + dy)),
+      x: clamp(ox + dx, -maxOffsetX, maxOffsetX),
+      y: clamp(oy + dy, -maxOffsetY, maxOffsetY),
     })
   }, [dragging, natural.w, natural.h, scale, frameW, frameH])
 
@@ -153,8 +126,8 @@ export function ImageCropper({ imageSrc, outputSize, onConfirm: confirmCrop, onC
     const maxOffsetY = Math.max(0, (displayH - frameH) / 2)
 
     setOffset({
-      x: Math.max(-maxOffsetX, Math.min(maxOffsetX, ox + dx)),
-      y: Math.max(-maxOffsetY, Math.min(maxOffsetY, oy + dy)),
+      x: clamp(ox + dx, -maxOffsetX, maxOffsetX),
+      y: clamp(oy + dy, -maxOffsetY, maxOffsetY),
     })
   }, [dragging, natural.w, natural.h, scale, frameW, frameH])
 
@@ -198,7 +171,6 @@ export function ImageCropper({ imageSrc, outputSize, onConfirm: confirmCrop, onC
 
         <div className="py-5 flex justify-center bg-black/40">
           <div
-            ref={containerRef}
             className="relative overflow-hidden select-none"
             style={{
               width: frameW,
@@ -206,6 +178,7 @@ export function ImageCropper({ imageSrc, outputSize, onConfirm: confirmCrop, onC
               cursor: dragging ? 'grabbing' : 'grab',
               touchAction: 'none',
             }}
+            onWheel={onWheel}
             onMouseDown={onMouseDown}
             onMouseMove={onMouseMove}
             onMouseUp={onMouseUp}
@@ -229,6 +202,9 @@ export function ImageCropper({ imageSrc, outputSize, onConfirm: confirmCrop, onC
                   top,
                   width: displayW,
                   height: displayH,
+                  maxWidth: 'none',
+                  maxHeight: 'none',
+                  transformOrigin: 'center center',
                 }}
               />
             )}
