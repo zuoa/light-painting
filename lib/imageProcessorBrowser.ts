@@ -440,17 +440,31 @@ async function generatePreview(
     const coverLum = coverR * 0.2126 + coverG * 0.7152 + coverB * 0.0722
     const lightLum = lightR * 0.2126 + lightG * 0.7152 + lightB * 0.0722
 
-    // Darker cover areas absorb more light; brighter paper reflects more projection.
-    const receiving = lerp(0.42, 1.0, coverLum)
-    const projectionStrength = 0.22 + lightLum * 0.9
+    // Let projected color dominate more clearly while the cover still acts as the receiving surface.
+    const receiving = lerp(0.56, 1.0, coverLum)
+    const projectionStrength = 0.34 + lightLum * 0.88
 
     const projectedR = lightR * projectionStrength * receiving
     const projectedG = lightG * projectionStrength * receiving
     const projectedB = lightB * projectionStrength * receiving
 
-    const litR = coverR * 0.58 + projectedR + coverR * lightLum * 0.14
-    const litG = coverG * 0.58 + projectedG + coverG * lightLum * 0.14
-    const litB = coverB * 0.58 + projectedB + coverB * lightLum * 0.14
+    const paperR = coverR * 0.44
+    const paperG = coverG * 0.44
+    const paperB = coverB * 0.44
+
+    let litR = 1 - (1 - paperR) * (1 - Math.min(1, projectedR))
+    let litG = 1 - (1 - paperG) * (1 - Math.min(1, projectedG))
+    let litB = 1 - (1 - paperB) * (1 - Math.min(1, projectedB))
+
+    litR += coverR * lightLum * 0.08
+    litG += coverG * lightLum * 0.08
+    litB += coverB * lightLum * 0.06
+
+    ;[litR, litG, litB] = boostPreviewColor(
+      Math.min(1, litR),
+      Math.min(1, litG),
+      Math.min(1, litB)
+    )
 
     out[i] = compressPreviewChannel(clamp8(Math.round(litR * 255)))
     out[i + 1] = compressPreviewChannel(clamp8(Math.round(litG * 255)))
@@ -474,6 +488,20 @@ function compressPreviewChannel(value: number): number {
   }
 
   return clamp8(Math.round(v * 255))
+}
+
+function boostPreviewColor(r: number, g: number, b: number): [number, number, number] {
+  const lum = r * 0.2126 + g * 0.7152 + b * 0.0722
+  const maxChannel = Math.max(r, g, b)
+  const minChannel = Math.min(r, g, b)
+  const chroma = maxChannel - minChannel
+  const vibrance = 0.14 + (1 - Math.min(1, chroma / 0.4)) * 0.18
+
+  return [
+    Math.max(0, Math.min(1, lerp(lum, r, 1 + vibrance))),
+    Math.max(0, Math.min(1, lerp(lum, g, 1 + vibrance))),
+    Math.max(0, Math.min(1, lerp(lum, b, 1 + vibrance))),
+  ]
 }
 
 // ─── Stack Blur Algorithm (fast approximate Gaussian blur) ───────────────────
