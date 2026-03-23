@@ -1,7 +1,8 @@
 name = "light-painting"
 compatibility_date = "2026-03-23"
 compatibility_flags = ["nodejs_compat"]
-pages_build_output_dir = "dist"
+[assets]
+directory = "./dist"
 
 # Cloudflare Pages 配置
 [build]
