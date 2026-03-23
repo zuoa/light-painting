@@ -9,6 +9,7 @@ export const DEFAULT_PARAMS: ProcessParams = {
     contrast: 1.1,
     warmth: 10,
     sharpness: 0.6,
+    extractSubject: true,
   },
   layer1: {
     gamma: 1.25,
@@ -54,6 +55,7 @@ export const STYLE_PRESETS: StylePreset[] = [
         contrast: 1.06,
         warmth: 12,
         sharpness: 0.3,
+        extractSubject: false,
       },
       layer1: {
         gamma: 1.4,
@@ -90,6 +92,7 @@ export const STYLE_PRESETS: StylePreset[] = [
         contrast: 1.16,
         warmth: 8,
         sharpness: 1.0,
+        extractSubject: false,
       },
       layer1: {
         gamma: 1.1,

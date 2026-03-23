@@ -13,6 +13,10 @@ interface ParamsPanelProps {
   onSelectPreset: (id: string) => void
 }
 
+type CoverSliderKey = keyof typeof PARAM_META.cover
+type Layer1SliderKey = keyof typeof PARAM_META.layer1
+type Layer2SliderKey = keyof typeof PARAM_META.layer2
+
 export function ParamsPanel({
   params,
   onChange,
@@ -20,15 +24,15 @@ export function ParamsPanel({
   selectedPreset,
   onSelectPreset,
 }: ParamsPanelProps) {
-  const updateCover = (key: keyof ProcessParams['cover'], value: number) => {
+  const updateCover = (key: CoverSliderKey, value: number) => {
     onChange({ ...params, cover: { ...params.cover, [key]: value } })
   }
 
-  const updateLayer1 = (key: keyof ProcessParams['layer1'], value: number) => {
+  const updateLayer1 = (key: Layer1SliderKey, value: number) => {
     onChange({ ...params, layer1: { ...params.layer1, [key]: value } })
   }
 
-  const updateLayer2 = (key: keyof ProcessParams['layer2'], value: number) => {
+  const updateLayer2 = (key: Layer2SliderKey, value: number) => {
     onChange({ ...params, layer2: { ...params.layer2, [key]: value } })
   }
 
@@ -143,8 +147,8 @@ export function ParamsPanel({
               min={meta.min}
               max={meta.max}
               step={meta.step}
-              value={params.cover[key as keyof ProcessParams['cover']]}
-              onChange={(v) => updateCover(key as keyof ProcessParams['cover'], v)}
+              value={params.cover[key as CoverSliderKey]}
+              onChange={(v) => updateCover(key as CoverSliderKey, v)}
             />
           ))}
         </ParamSection>
@@ -159,8 +163,8 @@ export function ParamsPanel({
               min={meta.min}
               max={meta.max}
               step={meta.step}
-              value={params.layer1[key as keyof ProcessParams['layer1']]}
-              onChange={(v) => updateLayer1(key as keyof ProcessParams['layer1'], v)}
+              value={params.layer1[key as Layer1SliderKey]}
+              onChange={(v) => updateLayer1(key as Layer1SliderKey, v)}
             />
           ))}
         </ParamSection>
@@ -175,8 +179,8 @@ export function ParamsPanel({
               min={meta.min}
               max={meta.max}
               step={meta.step}
-              value={params.layer2[key as keyof ProcessParams['layer2']]}
-              onChange={(v) => updateLayer2(key as keyof ProcessParams['layer2'], v)}
+              value={params.layer2[key as Layer2SliderKey]}
+              onChange={(v) => updateLayer2(key as Layer2SliderKey, v)}
             />
           ))}
         </ParamSection>

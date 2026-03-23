@@ -27,6 +27,8 @@ export interface CoverParams {
   warmth: number
   /** Sharpen sigma (0 = off, higher = sharper) */
   sharpness: number
+  /** Extract the centered portrait subject onto a paper-like background */
+  extractSubject: boolean
 }
 
 export interface Layer1Params {
