@@ -25,10 +25,14 @@ export function ResultCard({ title, subtitle, imageSrc, filename, isLoading, onP
   return (
     <div className="card h-full flex flex-col">
       {/* Header */}
-      <div className="px-4 py-3 border-b border-surface-2 flex justify-between gap-3 min-h-[74px]">
+      <div className="px-4 py-3 border-b border-surface-2 flex justify-between gap-3 h-[76px]">
         <div className="min-w-0 flex-1">
-          <h3 className="font-medium text-primary text-sm">{title}</h3>
-          {subtitle && <p className="text-xs text-muted mt-0.5 leading-4">{subtitle}</p>}
+          <h3 className="font-medium text-primary text-sm h-5 leading-5">{title}</h3>
+          {subtitle && (
+            <p className="text-xs text-muted mt-0.5 leading-4 h-8 overflow-hidden">
+              {subtitle}
+            </p>
+          )}
         </div>
         {imageSrc && !isLoading && (
           <button
