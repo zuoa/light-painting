@@ -10,8 +10,18 @@ const MODEL_CONFIG: Config = {
 
 let preloadPromise: Promise<void> | null = null
 
+function resolveModelPublicPath(): string | undefined {
+  if (typeof document === 'undefined') return undefined
+  return new URL('background-removal/', document.baseURI).toString()
+}
+
 function getModelConfig(progress?: Config['progress']): Config {
-  return progress ? { ...MODEL_CONFIG, progress } : MODEL_CONFIG
+  const publicPath = resolveModelPublicPath()
+  return {
+    ...MODEL_CONFIG,
+    ...(publicPath ? { publicPath } : {}),
+    ...(progress ? { progress } : {}),
+  }
 }
 
 async function ensureModelLoaded(progress?: Config['progress']): Promise<void> {

@@ -482,33 +482,16 @@ async function generateCover(
   }
 
   const { width, height } = canvas
-  let subjectCanvas: HTMLCanvasElement
-  let subjectBounds: { x: number; y: number; width: number; height: number }
-
+  let extracted
   try {
-    const extracted = await extractPortraitSubject(canvas)
-    subjectCanvas = extracted.canvas
-    subjectBounds = extracted.bounds
+    extracted = await extractPortraitSubject(canvas)
   } catch (error) {
-    console.warn('[cover] Portrait model extraction failed, falling back to heuristic mask.', error)
-    const { maskCanvas, bounds } = createPortraitSubjectMask(sourceCanvas)
-    const fullMaskCanvas = createCanvas(width, height)
-    const fullMaskCtx = getContext(fullMaskCanvas)
-    fullMaskCtx.imageSmoothingEnabled = true
-    fullMaskCtx.drawImage(maskCanvas, 0, 0, width, height)
-
-    subjectCanvas = cloneCanvas(canvas)
-    const subjectCtx = getContext(subjectCanvas)
-    subjectCtx.globalCompositeOperation = 'destination-in'
-    subjectCtx.drawImage(fullMaskCanvas, 0, 0)
-    subjectCtx.globalCompositeOperation = 'source-over'
-    subjectBounds = {
-      x: (bounds.x / maskCanvas.width) * width,
-      y: (bounds.y / maskCanvas.height) * height,
-      width: (bounds.width / maskCanvas.width) * width,
-      height: (bounds.height / maskCanvas.height) * height,
-    }
+    console.error('[cover] Portrait model extraction failed.', error)
+    throw new Error('人物封面模型没有成功运行，请检查模型资源是否可访问后重试')
   }
+
+  const subjectCanvas = extracted.canvas
+  const subjectBounds = extracted.bounds
 
   const output = createPaperBackground(width, height, params.warmth)
   const outputCtx = getContext(output)
