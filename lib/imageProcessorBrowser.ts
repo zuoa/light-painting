@@ -2,6 +2,7 @@
 // 无需后端，图片不上传服务器
 
 import type { ProcessParams, ProcessResult } from './types'
+import { extractPortraitSubject } from './portraitExtractor'
 
 function clamp8(value: number): number {
   return Math.min(255, Math.max(0, value))
@@ -481,26 +482,36 @@ async function generateCover(
   }
 
   const { width, height } = canvas
-  const { maskCanvas, bounds } = createPortraitSubjectMask(sourceCanvas)
-  const fullMaskCanvas = createCanvas(width, height)
-  const fullMaskCtx = getContext(fullMaskCanvas)
-  fullMaskCtx.imageSmoothingEnabled = true
-  fullMaskCtx.drawImage(maskCanvas, 0, 0, width, height)
+  let subjectCanvas: HTMLCanvasElement
+  let subjectBounds: { x: number; y: number; width: number; height: number }
 
-  const subjectCanvas = cloneCanvas(canvas)
-  const subjectCtx = getContext(subjectCanvas)
-  subjectCtx.globalCompositeOperation = 'destination-in'
-  subjectCtx.drawImage(fullMaskCanvas, 0, 0)
-  subjectCtx.globalCompositeOperation = 'source-over'
+  try {
+    const extracted = await extractPortraitSubject(canvas)
+    subjectCanvas = extracted.canvas
+    subjectBounds = extracted.bounds
+  } catch (error) {
+    console.warn('[cover] Portrait model extraction failed, falling back to heuristic mask.', error)
+    const { maskCanvas, bounds } = createPortraitSubjectMask(sourceCanvas)
+    const fullMaskCanvas = createCanvas(width, height)
+    const fullMaskCtx = getContext(fullMaskCanvas)
+    fullMaskCtx.imageSmoothingEnabled = true
+    fullMaskCtx.drawImage(maskCanvas, 0, 0, width, height)
+
+    subjectCanvas = cloneCanvas(canvas)
+    const subjectCtx = getContext(subjectCanvas)
+    subjectCtx.globalCompositeOperation = 'destination-in'
+    subjectCtx.drawImage(fullMaskCanvas, 0, 0)
+    subjectCtx.globalCompositeOperation = 'source-over'
+    subjectBounds = {
+      x: (bounds.x / maskCanvas.width) * width,
+      y: (bounds.y / maskCanvas.height) * height,
+      width: (bounds.width / maskCanvas.width) * width,
+      height: (bounds.height / maskCanvas.height) * height,
+    }
+  }
 
   const output = createPaperBackground(width, height, params.warmth)
   const outputCtx = getContext(output)
-  const subjectBounds = {
-    x: (bounds.x / maskCanvas.width) * width,
-    y: (bounds.y / maskCanvas.height) * height,
-    width: (bounds.width / maskCanvas.width) * width,
-    height: (bounds.height / maskCanvas.height) * height,
-  }
   const sourceCenterX = subjectBounds.x + subjectBounds.width / 2
   const sourceCenterY = subjectBounds.y + subjectBounds.height / 2
   const scale = Math.min((width * 0.7) / subjectBounds.width, (height * 0.84) / subjectBounds.height, 1.28)
