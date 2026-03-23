@@ -401,39 +401,64 @@ async function generatePreview(
   layer2Canvas: HTMLCanvasElement,
   targetSize: { width: number; height: number }
 ): Promise<HTMLCanvasElement> {
-  const canvas = createCanvas(targetSize.width, targetSize.height)
+  const { width, height } = targetSize
+  const canvas = createCanvas(width, height)
   const ctx = getContext(canvas)
 
-  // Draw cover as base
-  ctx.drawImage(coverCanvas, 0, 0)
+  const lightCanvas = createCanvas(width, height)
+  const lightCtx = getContext(lightCanvas)
 
-  // Add layer glows using a conservative screen blend to avoid clipping highlights
-  ctx.globalCompositeOperation = 'screen'
+  lightCtx.fillStyle = '#000'
+  lightCtx.fillRect(0, 0, width, height)
 
-  // Layer 1 glow: keep detail, but don't wash out the cover
-  ctx.globalAlpha = 0.26
-  ctx.drawImage(layer1Canvas, 0, 0)
+  // Simulate the light source first hitting the back layer, then being refined by the front layer.
+  lightCtx.globalCompositeOperation = 'source-over'
+  lightCtx.globalAlpha = 0.72
+  lightCtx.drawImage(layer2Canvas, 0, 0)
+  lightCtx.globalCompositeOperation = 'screen'
+  lightCtx.globalAlpha = 0.88
+  lightCtx.drawImage(layer1Canvas, 0, 0)
+  lightCtx.globalAlpha = 1
+  lightCtx.globalCompositeOperation = 'source-over'
 
-  // Layer 2 glow: softer atmosphere contribution
-  ctx.globalAlpha = 0.16
-  ctx.drawImage(layer2Canvas, 0, 0)
-  ctx.globalAlpha = 1.0
+  // Slight diffusion to mimic projection spread between layers and cover.
+  applyMaskBlur(lightCtx, width, height, 4)
 
-  // Reset composite
-  ctx.globalCompositeOperation = 'source-over'
+  const coverData = getContext(coverCanvas).getImageData(0, 0, width, height)
+  const lightData = lightCtx.getImageData(0, 0, width, height)
+  const output = ctx.createImageData(width, height)
+  const out = output.data
 
-  // Compress highlights so bright regions keep texture instead of blowing out.
-  const imageData = ctx.getImageData(0, 0, targetSize.width, targetSize.height)
-  const data = imageData.data
+  for (let i = 0; i < out.length; i += 4) {
+    const coverR = coverData.data[i] / 255
+    const coverG = coverData.data[i + 1] / 255
+    const coverB = coverData.data[i + 2] / 255
+    const lightR = lightData.data[i] / 255
+    const lightG = lightData.data[i + 1] / 255
+    const lightB = lightData.data[i + 2] / 255
 
-  for (let i = 0; i < data.length; i += 4) {
-    data[i] = compressPreviewChannel(data[i])
-    data[i + 1] = compressPreviewChannel(data[i + 1])
-    data[i + 2] = compressPreviewChannel(data[i + 2])
+    const coverLum = coverR * 0.2126 + coverG * 0.7152 + coverB * 0.0722
+    const lightLum = lightR * 0.2126 + lightG * 0.7152 + lightB * 0.0722
+
+    // Darker cover areas absorb more light; brighter paper reflects more projection.
+    const receiving = lerp(0.42, 1.0, coverLum)
+    const projectionStrength = 0.22 + lightLum * 0.9
+
+    const projectedR = lightR * projectionStrength * receiving
+    const projectedG = lightG * projectionStrength * receiving
+    const projectedB = lightB * projectionStrength * receiving
+
+    const litR = coverR * 0.58 + projectedR + coverR * lightLum * 0.14
+    const litG = coverG * 0.58 + projectedG + coverG * lightLum * 0.14
+    const litB = coverB * 0.58 + projectedB + coverB * lightLum * 0.14
+
+    out[i] = compressPreviewChannel(clamp8(Math.round(litR * 255)))
+    out[i + 1] = compressPreviewChannel(clamp8(Math.round(litG * 255)))
+    out[i + 2] = compressPreviewChannel(clamp8(Math.round(litB * 255)))
+    out[i + 3] = 255
   }
 
-  ctx.putImageData(imageData, 0, 0)
-
+  ctx.putImageData(output, 0, 0)
   return canvas
 }
 
