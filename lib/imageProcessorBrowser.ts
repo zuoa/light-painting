@@ -160,7 +160,7 @@ async function generateCover(
   return canvas
 }
 
-// ─── Layer 1: detail layer (grayscale) ───────────────────────────────────────
+// ─── Layer 1: detail layer (color) ───────────────────────────────────────────
 
 async function generateLayer1(
   img: HTMLImageElement,
@@ -174,30 +174,37 @@ async function generateLayer1(
   const data = imageData.data
 
   for (let i = 0; i < data.length; i += 4) {
-    // Grayscale
-    let gray = data[i] * 0.2126 + data[i + 1] * 0.7152 + data[i + 2] * 0.0722
+    let r = data[i]
+    let g = data[i + 1]
+    let b = data[i + 2]
+
+    // Use luminance to drive gamma/contrast, then apply to each channel proportionally
+    const lum = r * 0.2126 + g * 0.7152 + b * 0.0722
+    if (lum === 0) continue
 
     // Gamma
-    gray = Math.pow(gray / 255, params.gamma) * 255
+    const lumGamma = Math.pow(lum / 255, params.gamma) * 255
 
     // Contrast
-    gray = ((gray - 128) * params.contrast) + 128
+    let lumFinal = ((lumGamma - 128) * params.contrast) + 128
 
     // Shadow crush
-    if (gray < 128) {
-      gray = Math.pow(gray / 128, 1 + params.shadowCrush) * 128
+    if (lumFinal < 128) {
+      lumFinal = Math.pow(lumFinal / 128, 1 + params.shadowCrush) * 128
     }
 
     // Invert if requested
     if (common.invertLayers) {
-      gray = 255 - gray
+      lumFinal = 255 - lumFinal
     }
 
-    gray = Math.min(255, Math.max(0, gray))
+    lumFinal = Math.min(255, Math.max(0, lumFinal))
 
-    data[i] = gray
-    data[i + 1] = gray
-    data[i + 2] = gray
+    // Scale each channel by the same ratio as lum changed
+    const ratio = lumFinal / lum
+    data[i]     = Math.min(255, Math.max(0, r * ratio))
+    data[i + 1] = Math.min(255, Math.max(0, g * ratio))
+    data[i + 2] = Math.min(255, Math.max(0, b * ratio))
   }
 
   ctx.putImageData(imageData, 0, 0)
@@ -210,7 +217,7 @@ async function generateLayer1(
   return canvas
 }
 
-// ─── Layer 2: atmosphere layer (grayscale, more blur) ────────────────────────
+// ─── Layer 2: atmosphere layer (color, more blur) ────────────────────────────
 
 async function generateLayer2(
   img: HTMLImageElement,
@@ -224,30 +231,36 @@ async function generateLayer2(
   const data = imageData.data
 
   for (let i = 0; i < data.length; i += 4) {
-    // Grayscale
-    let gray = data[i] * 0.2126 + data[i + 1] * 0.7152 + data[i + 2] * 0.0722
+    let r = data[i]
+    let g = data[i + 1]
+    let b = data[i + 2]
+
+    const lum = r * 0.2126 + g * 0.7152 + b * 0.0722
+    if (lum === 0) continue
 
     // Gamma
-    gray = Math.pow(gray / 255, params.gamma) * 255
+    let lumFinal = Math.pow(lum / 255, params.gamma) * 255
 
     // Contrast
-    gray = ((gray - 128) * params.contrast) + 128
+    lumFinal = ((lumFinal - 128) * params.contrast) + 128
 
     // Atmosphere - boost highlights
-    if (gray > 180) {
-      gray += (gray - 180) * params.atmosphereStrength
+    if (lumFinal > 180) {
+      lumFinal += (lumFinal - 180) * params.atmosphereStrength
     }
 
     // Invert if requested
     if (common.invertLayers) {
-      gray = 255 - gray
+      lumFinal = 255 - lumFinal
     }
 
-    gray = Math.min(255, Math.max(0, gray))
+    lumFinal = Math.min(255, Math.max(0, lumFinal))
 
-    data[i] = gray
-    data[i + 1] = gray
-    data[i + 2] = gray
+    // Scale each channel by the same ratio as lum changed
+    const ratio = lumFinal / lum
+    data[i]     = Math.min(255, Math.max(0, r * ratio))
+    data[i + 1] = Math.min(255, Math.max(0, g * ratio))
+    data[i + 2] = Math.min(255, Math.max(0, b * ratio))
   }
 
   ctx.putImageData(imageData, 0, 0)
@@ -402,7 +415,7 @@ function applyStackBlur(
     const p = i << 2
     pixels[p] = rOut[i]
     pixels[p + 1] = gOut[i]
-    pixels[p + 2] = gOut[i]
+    pixels[p + 2] = bOut[i]
   }
 
   ctx.putImageData(imageData, 0, 0)

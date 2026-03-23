@@ -116,7 +116,53 @@ export function ParamsPanel({
 
         {/* Common Params */}
         <ParamSection title="通用参数">
-          <div className="space-y-3 mb-4">
+          {/* Size preset */}
+          <div className="mb-4">
+            <div className="text-xs text-muted mb-2">输出尺寸</div>
+            <div className="flex gap-2 mb-3">
+              {(['7inch', '8inch', 'custom'] as const).map((preset) => (
+                <button
+                  key={preset}
+                  onClick={() => updateCommon('sizePreset', preset)}
+                  className={`flex-1 py-1.5 text-xs rounded-md border transition-all ${
+                    params.common.sizePreset === preset
+                      ? 'bg-accent/10 border-accent text-accent'
+                      : 'bg-surface-2 border-transparent text-muted hover:border-surface-3'
+                  }`}
+                >
+                  {preset === '7inch' ? '7寸' : preset === '8inch' ? '8寸' : '自定义'}
+                </button>
+              ))}
+            </div>
+            {params.common.sizePreset === 'custom' && (
+              <div className="flex gap-2 items-center">
+                <input
+                  type="number"
+                  value={params.common.customWidth}
+                  onChange={(e) => updateCommon('customWidth', Number(e.target.value))}
+                  className="w-full bg-surface-2 border border-surface-3 rounded-md px-2 py-1 text-xs text-primary"
+                  placeholder="宽 px"
+                  min={100}
+                />
+                <span className="text-muted text-xs">×</span>
+                <input
+                  type="number"
+                  value={params.common.customHeight}
+                  onChange={(e) => updateCommon('customHeight', Number(e.target.value))}
+                  className="w-full bg-surface-2 border border-surface-3 rounded-md px-2 py-1 text-xs text-primary"
+                  placeholder="高 px"
+                  min={100}
+                />
+              </div>
+            )}
+            {params.common.sizePreset !== 'custom' && (
+              <div className="text-xs text-muted">
+                {params.common.sizePreset === '7inch' ? '1500 × 2100 px' : '1800 × 2400 px'}
+              </div>
+            )}
+          </div>
+
+          <div className="space-y-3">
             <Checkbox
               label="自动居中裁切"
               checked={params.common.autoCrop}

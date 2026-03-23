@@ -133,7 +133,7 @@ export default function Home() {
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Left: Params Panel */}
           <div className="lg:col-span-1">
-            <div className="card sticky top-24 max-h-[calc(100vh-8rem)] overflow-hidden">
+            <div className="card sticky top-24 h-[calc(100vh-8rem)] overflow-hidden">
               <ParamsPanel
                 params={params}
                 onChange={setParams}
