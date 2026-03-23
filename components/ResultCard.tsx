@@ -23,17 +23,17 @@ export function ResultCard({ title, subtitle, imageSrc, filename, isLoading, onP
   }
 
   return (
-    <div className="card">
+    <div className="card h-full flex flex-col">
       {/* Header */}
-      <div className="px-4 py-3 border-b border-surface-2 flex justify-between items-center">
-        <div>
+      <div className="px-4 py-3 border-b border-surface-2 flex justify-between gap-3 min-h-[74px]">
+        <div className="min-w-0 flex-1">
           <h3 className="font-medium text-primary text-sm">{title}</h3>
-          {subtitle && <p className="text-xs text-muted mt-0.5">{subtitle}</p>}
+          {subtitle && <p className="text-xs text-muted mt-0.5 leading-4">{subtitle}</p>}
         </div>
         {imageSrc && !isLoading && (
           <button
             onClick={handleDownload}
-            className="p-2 rounded-lg hover:bg-surface-2 transition-colors"
+            className="p-2 rounded-lg hover:bg-surface-2 transition-colors self-start shrink-0"
             title="下载图片"
           >
             <Download className="w-4 h-4 text-accent" />
@@ -43,7 +43,7 @@ export function ResultCard({ title, subtitle, imageSrc, filename, isLoading, onP
 
       {/* Image */}
       <div
-        className={`aspect-[5/7] bg-surface-1 relative overflow-hidden ${imageSrc && !isLoading && onPreview ? 'cursor-zoom-in' : ''}`}
+        className={`aspect-[5/7] bg-surface-1 relative overflow-hidden flex-none ${imageSrc && !isLoading && onPreview ? 'cursor-zoom-in' : ''}`}
         onClick={() => imageSrc && !isLoading && onPreview?.(imageSrc)}
       >
         {isLoading ? (
