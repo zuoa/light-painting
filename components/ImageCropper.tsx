@@ -192,19 +192,17 @@ export function ImageCropper({ imageSrc, outputSize, onConfirm: confirmCrop, onC
             )}
 
             {loaded && displayW > 0 && displayH > 0 && (
-              <img
-                src={imageSrc}
-                alt="crop"
-                draggable={false}
-                className="absolute pointer-events-none select-none"
+              <div
+                aria-hidden="true"
+                className="absolute pointer-events-none select-none bg-no-repeat"
                 style={{
                   left,
                   top,
                   width: displayW,
                   height: displayH,
-                  maxWidth: 'none',
-                  maxHeight: 'none',
-                  transformOrigin: 'center center',
+                  backgroundImage: `url(${imageSrc})`,
+                  backgroundPosition: 'center',
+                  backgroundSize: '100% 100%',
                 }}
               />
             )}
