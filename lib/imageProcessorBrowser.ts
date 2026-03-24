@@ -3,6 +3,7 @@
 
 import type { ProcessParams, ProcessResult } from './types'
 import { extractPortraitSubject } from './portraitExtractor'
+import type { ExtractedPortrait } from './portraitExtractor'
 
 function clamp8(value: number): number {
   return Math.min(255, Math.max(0, value))
@@ -142,11 +143,25 @@ export async function processImageBrowser(
   // 2. 计算目标尺寸
   const targetSize = getTargetSize(params.common)
   const sourceCanvas = await resizeToTarget(bitmap, targetSize)
+  let extractedPortrait: ExtractedPortrait | null = null
+  let alignedSubjectCanvas: HTMLCanvasElement | null = null
+
+  if (params.cover.extractSubject) {
+    try {
+      extractedPortrait = await extractPortraitSubject(sourceCanvas)
+      alignedSubjectCanvas = createAlignedSubjectCanvas(sourceCanvas.width, sourceCanvas.height, extractedPortrait)
+    } catch (error) {
+      console.error('[cover] Portrait model extraction failed.', error)
+      const reason = error instanceof Error ? error.message : '未知错误'
+      throw new Error(`人物封面模型运行失败：${reason}`)
+    }
+  }
 
   // 3. 生成四张图
-  const coverCanvas = await generateCover(sourceCanvas, params.cover)
-  const layer1Canvas = await generateLayer1(sourceCanvas, params.layer1, params.common)
-  const layer2Canvas = await generateLayer2(sourceCanvas, params.layer2, params.common)
+  const coverCanvas = await generateCover(sourceCanvas, params.cover, extractedPortrait)
+  const layersSourceCanvas = alignedSubjectCanvas ?? sourceCanvas
+  const layer1Canvas = await generateLayer1(layersSourceCanvas, params.layer1, params.common)
+  const layer2Canvas = await generateLayer2(layersSourceCanvas, params.layer2, params.common)
   const previewCanvas = await generatePreview(coverCanvas, layer1Canvas, layer2Canvas, targetSize)
 
   // 4. 转换为 base64
@@ -468,11 +483,70 @@ function createPaperBackground(
   return canvas
 }
 
+interface SubjectPlacement {
+  sourceCenterX: number
+  sourceCenterY: number
+  scale: number
+  destCenterX: number
+  destCenterY: number
+}
+
+function createSubjectPlacement(
+  bounds: { x: number; y: number; width: number; height: number },
+  width: number,
+  height: number
+): SubjectPlacement {
+  return {
+    sourceCenterX: bounds.x + bounds.width / 2,
+    sourceCenterY: bounds.y + bounds.height / 2,
+    scale: Math.min((width * 0.7) / bounds.width, (height * 0.84) / bounds.height, 1.28),
+    destCenterX: width * 0.5,
+    destCenterY: height * 0.56,
+  }
+}
+
+function drawPlacedSubject(
+  ctx: CanvasRenderingContext2D,
+  subjectCanvas: HTMLCanvasElement,
+  placement: SubjectPlacement,
+  options?: {
+    shadowColor?: string
+    shadowBlur?: number
+    shadowOffsetY?: number
+  }
+): void {
+  ctx.save()
+  ctx.translate(placement.destCenterX, placement.destCenterY)
+  ctx.scale(placement.scale, placement.scale)
+  ctx.translate(-placement.sourceCenterX, -placement.sourceCenterY)
+
+  if (options?.shadowColor) ctx.shadowColor = options.shadowColor
+  if (typeof options?.shadowBlur === 'number') ctx.shadowBlur = options.shadowBlur
+  if (typeof options?.shadowOffsetY === 'number') ctx.shadowOffsetY = options.shadowOffsetY
+
+  ctx.drawImage(subjectCanvas, 0, 0)
+  ctx.restore()
+}
+
+function createAlignedSubjectCanvas(
+  width: number,
+  height: number,
+  extracted: ExtractedPortrait
+): HTMLCanvasElement {
+  const canvas = createCanvas(width, height)
+  const ctx = getContext(canvas)
+  ctx.fillStyle = '#000'
+  ctx.fillRect(0, 0, width, height)
+  drawPlacedSubject(ctx, extracted.canvas, createSubjectPlacement(extracted.bounds, width, height))
+  return canvas
+}
+
 // ─── Cover generation: warm-gray style ───────────────────────────────────────
 
 async function generateCover(
   sourceCanvas: HTMLCanvasElement,
-  params: ProcessParams['cover']
+  params: ProcessParams['cover'],
+  extractedPortrait?: ExtractedPortrait | null
 ): Promise<HTMLCanvasElement> {
   const canvas = cloneCanvas(sourceCanvas)
   applyCoverTone(canvas, params)
@@ -482,32 +556,20 @@ async function generateCover(
   }
 
   const { width, height } = canvas
-  let extracted
-  try {
-    extracted = await extractPortraitSubject(canvas)
-  } catch (error) {
-    console.error('[cover] Portrait model extraction failed.', error)
-    const reason = error instanceof Error ? error.message : '未知错误'
-    throw new Error(`人物封面模型运行失败：${reason}`)
-  }
-
-  const subjectCanvas = extracted.canvas
-  const subjectBounds = extracted.bounds
+  const extracted = extractedPortrait ?? await extractPortraitSubject(sourceCanvas)
+  const subjectCanvas = cloneCanvas(extracted.canvas)
+  applyCoverTone(subjectCanvas, params)
 
   const output = createPaperBackground(width, height, params.warmth)
   const outputCtx = getContext(output)
-  const sourceCenterX = subjectBounds.x + subjectBounds.width / 2
-  const sourceCenterY = subjectBounds.y + subjectBounds.height / 2
-  const scale = Math.min((width * 0.7) / subjectBounds.width, (height * 0.84) / subjectBounds.height, 1.28)
-  const destCenterX = width * 0.5
-  const destCenterY = height * 0.56
+  const placement = createSubjectPlacement(extracted.bounds, width, height)
 
   const halo = outputCtx.createRadialGradient(
-    destCenterX,
-    destCenterY - height * 0.06,
+    placement.destCenterX,
+    placement.destCenterY - height * 0.06,
     width * 0.08,
-    destCenterX,
-    destCenterY - height * 0.04,
+    placement.destCenterX,
+    placement.destCenterY - height * 0.04,
     width * 0.4
   )
   halo.addColorStop(0, 'rgba(255,249,240,0.34)')
@@ -516,22 +578,13 @@ async function generateCover(
   outputCtx.fillStyle = halo
   outputCtx.fillRect(0, 0, width, height)
 
-  outputCtx.save()
-  outputCtx.translate(destCenterX, destCenterY)
-  outputCtx.scale(scale, scale)
-  outputCtx.translate(-sourceCenterX, -sourceCenterY)
-  outputCtx.shadowColor = 'rgba(74, 54, 36, 0.26)'
-  outputCtx.shadowBlur = 28
-  outputCtx.shadowOffsetY = 16
-  outputCtx.drawImage(subjectCanvas, 0, 0)
-  outputCtx.restore()
+  drawPlacedSubject(outputCtx, subjectCanvas, placement, {
+    shadowColor: 'rgba(74, 54, 36, 0.26)',
+    shadowBlur: 28,
+    shadowOffsetY: 16,
+  })
 
-  outputCtx.save()
-  outputCtx.translate(destCenterX, destCenterY)
-  outputCtx.scale(scale, scale)
-  outputCtx.translate(-sourceCenterX, -sourceCenterY)
-  outputCtx.drawImage(subjectCanvas, 0, 0)
-  outputCtx.restore()
+  drawPlacedSubject(outputCtx, subjectCanvas, placement)
 
   return output
 }

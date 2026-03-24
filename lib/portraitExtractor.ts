@@ -166,6 +166,144 @@ function findAlphaBounds(
   return { x, y, width: boxWidth, height: boxHeight }
 }
 
+function scoreComponent(
+  count: number,
+  centroidX: number,
+  centroidY: number,
+  width: number,
+  height: number,
+  touchesEdge: boolean
+): number {
+  const nx = centroidX / Math.max(1, width)
+  const ny = centroidY / Math.max(1, height)
+  const centerDx = (nx - 0.5) / 0.38
+  const centerDy = (ny - 0.46) / 0.5
+  const centerWeight = 1 - Math.min(1, Math.sqrt(centerDx * centerDx + centerDy * centerDy))
+  const edgeWeight = touchesEdge ? 0.84 : 1
+
+  return count * (0.7 + centerWeight * 0.95) * edgeWeight
+}
+
+function collectPrimarySeedPixels(
+  alpha: Uint8ClampedArray,
+  width: number,
+  height: number,
+  threshold: number
+): number[] | null {
+  const visited = new Uint8Array(width * height)
+  const queue = new Int32Array(width * height)
+  let bestPixels: number[] | null = null
+  let bestScore = -1
+
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const start = y * width + x
+      if (visited[start] || alpha[start * 4 + 3] < threshold) continue
+
+      let head = 0
+      let tail = 0
+      let count = 0
+      let sumX = 0
+      let sumY = 0
+      let touchesEdge = false
+      const pixels: number[] = []
+
+      visited[start] = 1
+      queue[tail++] = start
+
+      while (head < tail) {
+        const index = queue[head++]
+        const px = index % width
+        const py = (index - px) / width
+
+        pixels.push(index)
+        count++
+        sumX += px + 0.5
+        sumY += py + 0.5
+        if (px === 0 || px === width - 1 || py === 0 || py === height - 1) touchesEdge = true
+
+        for (let ny = Math.max(0, py - 1); ny <= Math.min(height - 1, py + 1); ny++) {
+          for (let nx = Math.max(0, px - 1); nx <= Math.min(width - 1, px + 1); nx++) {
+            const next = ny * width + nx
+            if (visited[next] || alpha[next * 4 + 3] < threshold) continue
+            visited[next] = 1
+            queue[tail++] = next
+          }
+        }
+      }
+
+      const score = scoreComponent(count, sumX / count, sumY / count, width, height, touchesEdge)
+      if (score > bestScore) {
+        bestScore = score
+        bestPixels = pixels
+      }
+    }
+  }
+
+  return bestPixels
+}
+
+function expandSelectionFromSeeds(
+  alpha: Uint8ClampedArray,
+  width: number,
+  height: number,
+  seedPixels: number[],
+  threshold: number
+): Uint8Array {
+  const selected = new Uint8Array(width * height)
+  const queue = new Int32Array(width * height)
+  let head = 0
+  let tail = 0
+
+  for (const pixel of seedPixels) {
+    selected[pixel] = 1
+    queue[tail++] = pixel
+  }
+
+  while (head < tail) {
+    const index = queue[head++]
+    const px = index % width
+    const py = (index - px) / width
+
+    for (let ny = Math.max(0, py - 1); ny <= Math.min(height - 1, py + 1); ny++) {
+      for (let nx = Math.max(0, px - 1); nx <= Math.min(width - 1, px + 1); nx++) {
+        const next = ny * width + nx
+        if (selected[next] || alpha[next * 4 + 3] < threshold) continue
+        selected[next] = 1
+        queue[tail++] = next
+      }
+    }
+  }
+
+  return selected
+}
+
+function isolatePrimarySubject(canvas: HTMLCanvasElement): void {
+  const ctx = canvas.getContext('2d', { willReadFrequently: true })
+  if (!ctx) throw new Error('Failed to isolate portrait subject')
+
+  const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height)
+  const alpha = imageData.data
+  const strongSeeds =
+    collectPrimarySeedPixels(alpha, canvas.width, canvas.height, 80) ??
+    collectPrimarySeedPixels(alpha, canvas.width, canvas.height, 48) ??
+    collectPrimarySeedPixels(alpha, canvas.width, canvas.height, 24)
+
+  if (!strongSeeds) return
+
+  const selected = expandSelectionFromSeeds(alpha, canvas.width, canvas.height, strongSeeds, 18)
+
+  for (let i = 0, p = 0; i < selected.length; i++, p += 4) {
+    if (selected[i]) continue
+    imageData.data[p] = 0
+    imageData.data[p + 1] = 0
+    imageData.data[p + 2] = 0
+    imageData.data[p + 3] = 0
+  }
+
+  ctx.putImageData(imageData, 0, 0)
+}
+
 export interface ExtractedPortrait {
   canvas: HTMLCanvasElement
   bounds: { x: number; y: number; width: number; height: number }
@@ -187,6 +325,8 @@ export async function extractPortraitSubject(
   const ctx = canvas.getContext('2d', { willReadFrequently: true })
   if (!ctx) throw new Error('Failed to create portrait extraction canvas')
   ctx.drawImage(foregroundImage, 0, 0, canvas.width, canvas.height)
+
+  isolatePrimarySubject(canvas)
 
   const bounds = findAlphaBounds(ctx.getImageData(0, 0, canvas.width, canvas.height).data, canvas.width, canvas.height, 24)
   if (!bounds) {
