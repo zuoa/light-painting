@@ -481,6 +481,18 @@ function createPaperBackground(
   return canvas
 }
 
+function createSolidBackground(
+  width: number,
+  height: number,
+  color: string
+): HTMLCanvasElement {
+  const canvas = createCanvas(width, height)
+  const ctx = getContext(canvas)
+  ctx.fillStyle = color
+  ctx.fillRect(0, 0, width, height)
+  return canvas
+}
+
 function createLineArtCanvas(
   sourceCanvas: HTMLCanvasElement,
   params: ProcessParams['cover']
@@ -497,9 +509,6 @@ function createLineArtCanvas(
   const smoothedLuminance = blurMask(luminance, width, height, Math.max(1, Math.round(1 + params.sharpness * 1.2)))
   const edgeMask = blurMask(createEdgeMask(data, width, height), width, height, 1)
   const output = ctx.createImageData(width, height)
-  const inkR = clamp8(92 + params.warmth * 1.1)
-  const inkG = clamp8(72 + params.warmth * 0.55)
-  const inkB = clamp8(54 - params.warmth * 0.15)
 
   for (let i = 0, p = 0; i < luminance.length; i++, p += 4) {
     const alpha = data[p + 3] / 255
@@ -507,21 +516,21 @@ function createLineArtCanvas(
 
     const detail = Math.min(1, Math.abs(luminance[i] - smoothedLuminance[i]) * (3.2 + params.sharpness * 1.35))
     const contour = Math.min(1, edgeMask[i] * (1.85 + params.sharpness * 0.5))
-    const shadow = smoothstep(0.18, 0.82, 1 - luminance[i]) * 0.18
-    const lineSignal = contour * (0.84 + params.contrast * 0.26) + detail * 0.96 + shadow
-    const ink = smoothstep(0.14, 0.42, lineSignal)
+    const shadow = smoothstep(0.18, 0.82, 1 - luminance[i]) * 0.12
+    const lineSignal = contour * (0.98 + params.contrast * 0.28) + detail * 1.08 + shadow
+    const ink = smoothstep(0.12, 0.38, lineSignal)
     const inkAlpha = clamp8(Math.round(clamp01(ink * alpha) * 255))
     if (inkAlpha === 0) continue
+    const inkValue = clamp8(Math.round(lerp(32, 0, ink)))
 
-    output.data[p] = inkR
-    output.data[p + 1] = inkG
-    output.data[p + 2] = inkB
+    output.data[p] = inkValue
+    output.data[p + 1] = inkValue
+    output.data[p + 2] = inkValue
     output.data[p + 3] = inkAlpha
   }
 
   ctx.clearRect(0, 0, width, height)
   ctx.putImageData(output, 0, 0)
-  applyMaskBlur(ctx, width, height, 1)
 
   return canvas
 }
@@ -531,7 +540,7 @@ function renderLineArtCover(
   params: ProcessParams['cover'],
   subjectBounds?: { x: number; y: number; width: number; height: number }
 ): HTMLCanvasElement {
-  const output = createPaperBackground(sourceCanvas.width, sourceCanvas.height, params.warmth)
+  const output = createSolidBackground(sourceCanvas.width, sourceCanvas.height, '#ffffff')
   const ctx = getContext(output)
   const lineCanvas = createLineArtCanvas(sourceCanvas, params)
 
@@ -544,16 +553,16 @@ function renderLineArtCover(
       subjectBounds.y + subjectBounds.height * 0.5,
       sourceCanvas.width * 0.34
     )
-    halo.addColorStop(0, 'rgba(255,250,244,0.20)')
+    halo.addColorStop(0, 'rgba(0,0,0,0.035)')
     halo.addColorStop(1, 'rgba(255,255,255,0)')
     ctx.fillStyle = halo
     ctx.fillRect(0, 0, output.width, output.height)
   }
 
   ctx.save()
-  ctx.shadowColor = 'rgba(70, 48, 30, 0.14)'
-  ctx.shadowBlur = 12
-  ctx.shadowOffsetY = 4
+  ctx.shadowColor = 'rgba(0, 0, 0, 0.06)'
+  ctx.shadowBlur = 4
+  ctx.shadowOffsetY = 1
   ctx.drawImage(lineCanvas, 0, 0)
   ctx.restore()
 
