@@ -1,5 +1,7 @@
 import type { Config } from '@imgly/background-removal'
 
+const MODEL_ASSET_REVISION = '20260324-ort-cache-bust-1'
+
 const MODEL_CONFIG: Config = {
   model: 'isnet_fp16',
   output: {
@@ -15,13 +17,50 @@ function resolveModelPublicPath(): string | undefined {
   return new URL('background-removal/', document.baseURI).toString()
 }
 
+function toCacheBustedUrl(value: string | URL, publicPath: string): string {
+  const url = new URL(typeof value === 'string' ? value : value.toString(), document.baseURI)
+  if (!url.toString().startsWith(publicPath)) {
+    return url.toString()
+  }
+
+  url.searchParams.set('v', MODEL_ASSET_REVISION)
+  return url.toString()
+}
+
+async function withPatchedAssetFetch<T>(publicPath: string | undefined, task: () => Promise<T>): Promise<T> {
+  if (!publicPath || typeof window === 'undefined') {
+    return task()
+  }
+
+  const originalFetch = window.fetch.bind(window)
+  const patchedFetch: typeof fetch = (input, init) => {
+    if (typeof input === 'string' || input instanceof URL) {
+      const url = toCacheBustedUrl(input, publicPath)
+      return originalFetch(url, { cache: 'no-store', ...init })
+    }
+
+    const url = toCacheBustedUrl(input.url, publicPath)
+    const request = new Request(url, input)
+    return originalFetch(request, { cache: 'no-store', ...init })
+  }
+
+  window.fetch = patchedFetch
+
+  try {
+    return await task()
+  } finally {
+    window.fetch = originalFetch
+  }
+}
+
 async function verifyModelAssets(publicPath?: string): Promise<void> {
   if (!publicPath) return
 
-  const resourceUrl = new URL('resources.json', publicPath).toString()
+  const resourceUrl = new URL('resources.json', publicPath)
+  resourceUrl.searchParams.set('v', MODEL_ASSET_REVISION)
   const response = await fetch(resourceUrl, { cache: 'no-store' })
   if (!response.ok) {
-    throw new Error(`模型资源清单不可访问: ${response.status} ${response.statusText} (${resourceUrl})`)
+    throw new Error(`模型资源清单不可访问: ${response.status} ${response.statusText} (${resourceUrl.toString()})`)
   }
 }
 
@@ -40,7 +79,7 @@ async function ensureModelLoaded(progress?: Config['progress']): Promise<void> {
       const config = getModelConfig(progress)
       await verifyModelAssets(config.publicPath)
       const { preload } = await import('@imgly/background-removal')
-      await preload(config)
+      await withPatchedAssetFetch(config.publicPath, () => preload(config))
     })().catch((error) => {
       preloadPromise = null
       throw error
@@ -140,7 +179,8 @@ export async function extractPortraitSubject(
 
   const { removeBackground } = await import('@imgly/background-removal')
   const sourceBlob = await canvasToBlob(sourceCanvas)
-  const foregroundBlob = await removeBackground(sourceBlob, getModelConfig(progress))
+  const config = getModelConfig(progress)
+  const foregroundBlob = await withPatchedAssetFetch(config.publicPath, () => removeBackground(sourceBlob, config))
   const foregroundImage = await loadImageFromBlob(foregroundBlob)
 
   const canvas = createCanvas(sourceCanvas.width, sourceCanvas.height)
