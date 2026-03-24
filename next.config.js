@@ -15,7 +15,7 @@ const nextConfig = {
     config.resolve.alias = {
       ...config.resolve.alias,
       'onnxruntime-web$': path.resolve(__dirname, 'node_modules/onnxruntime-web/dist/ort.wasm.min.js'),
-      'onnxruntime-web/webgpu$': path.resolve(__dirname, 'node_modules/onnxruntime-web/dist/ort.wasm.min.js'),
+      'onnxruntime-web/webgpu$': path.resolve(__dirname, 'node_modules/onnxruntime-web/dist/ort.webgpu.min.js'),
     }
 
     return config

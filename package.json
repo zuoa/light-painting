@@ -3,7 +3,9 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
+    "sync:onnxruntime": "node scripts/sync-onnxruntime-assets.mjs",
     "dev": "next dev",
+    "prebuild": "npm run sync:onnxruntime",
     "build": "next build",
     "start": "next start",
     "lint": "next lint"
