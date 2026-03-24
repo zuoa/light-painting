@@ -487,7 +487,8 @@ async function generateCover(
     extracted = await extractPortraitSubject(canvas)
   } catch (error) {
     console.error('[cover] Portrait model extraction failed.', error)
-    throw new Error('人物封面模型没有成功运行，请检查模型资源是否可访问后重试')
+    const reason = error instanceof Error ? error.message : '未知错误'
+    throw new Error(`人物封面模型运行失败：${reason}`)
   }
 
   const subjectCanvas = extracted.canvas

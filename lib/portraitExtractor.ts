@@ -15,6 +15,16 @@ function resolveModelPublicPath(): string | undefined {
   return new URL('background-removal/', document.baseURI).toString()
 }
 
+async function verifyModelAssets(publicPath?: string): Promise<void> {
+  if (!publicPath) return
+
+  const resourceUrl = new URL('resources.json', publicPath).toString()
+  const response = await fetch(resourceUrl, { cache: 'no-store' })
+  if (!response.ok) {
+    throw new Error(`模型资源清单不可访问: ${response.status} ${response.statusText} (${resourceUrl})`)
+  }
+}
+
 function getModelConfig(progress?: Config['progress']): Config {
   const publicPath = resolveModelPublicPath()
   return {
@@ -27,8 +37,10 @@ function getModelConfig(progress?: Config['progress']): Config {
 async function ensureModelLoaded(progress?: Config['progress']): Promise<void> {
   if (!preloadPromise) {
     preloadPromise = (async () => {
+      const config = getModelConfig(progress)
+      await verifyModelAssets(config.publicPath)
       const { preload } = await import('@imgly/background-removal')
-      await preload(getModelConfig(progress))
+      await preload(config)
     })().catch((error) => {
       preloadPromise = null
       throw error
