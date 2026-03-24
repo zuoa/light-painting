@@ -830,8 +830,13 @@ async function generatePreview(
   // Slight diffusion to mimic projection spread between layers and cover.
   applyMaskBlur(lightCtx, width, height, 4)
 
+  const bloomCanvas = cloneCanvas(lightCanvas)
+  const bloomCtx = getContext(bloomCanvas)
+  applyMaskBlur(bloomCtx, width, height, 14)
+
   const coverData = getContext(coverCanvas).getImageData(0, 0, width, height)
   const lightData = lightCtx.getImageData(0, 0, width, height)
+  const bloomData = bloomCtx.getImageData(0, 0, width, height)
   const output = ctx.createImageData(width, height)
   const out = output.data
 
@@ -842,29 +847,35 @@ async function generatePreview(
     const lightR = lightData.data[i] / 255
     const lightG = lightData.data[i + 1] / 255
     const lightB = lightData.data[i + 2] / 255
+    const bloomR = bloomData.data[i] / 255
+    const bloomG = bloomData.data[i + 1] / 255
+    const bloomB = bloomData.data[i + 2] / 255
 
     const coverLum = coverR * 0.2126 + coverG * 0.7152 + coverB * 0.0722
     const lightLum = lightR * 0.2126 + lightG * 0.7152 + lightB * 0.0722
+    const bloomLum = bloomR * 0.2126 + bloomG * 0.7152 + bloomB * 0.0722
 
-    // Let projected color dominate more clearly while the cover still acts as the receiving surface.
-    const receiving = lerp(0.56, 1.0, coverLum)
-    const projectionStrength = 0.34 + lightLum * 0.88
+    const receiving = lerp(0.72, 1.08, coverLum)
+    const projectionStrength = 0.48 + lightLum * 1.08
+    const bloomStrength = 0.18 + bloomLum * 0.72
+    const ledCore = smoothstep(0.42, 0.96, lightLum)
 
-    const projectedR = lightR * projectionStrength * receiving
-    const projectedG = lightG * projectionStrength * receiving
-    const projectedB = lightB * projectionStrength * receiving
+    const projectedR = (lightR * projectionStrength + bloomR * bloomStrength) * receiving
+    const projectedG = (lightG * projectionStrength + bloomG * bloomStrength) * receiving
+    const projectedB = (lightB * projectionStrength + bloomB * bloomStrength) * receiving
 
-    const paperR = coverR * 0.44
-    const paperG = coverG * 0.44
-    const paperB = coverB * 0.44
+    const paperStrength = lerp(0.18, 0.34, 1 - lightLum)
+    const paperR = coverR * paperStrength
+    const paperG = coverG * paperStrength
+    const paperB = coverB * paperStrength
 
     let litR = 1 - (1 - paperR) * (1 - Math.min(1, projectedR))
     let litG = 1 - (1 - paperG) * (1 - Math.min(1, projectedG))
     let litB = 1 - (1 - paperB) * (1 - Math.min(1, projectedB))
 
-    litR += coverR * lightLum * 0.08
-    litG += coverG * lightLum * 0.08
-    litB += coverB * lightLum * 0.06
+    litR += bloomR * 0.16 + ledCore * 0.07
+    litG += bloomG * 0.14 + ledCore * 0.06
+    litB += bloomB * 0.18 + ledCore * 0.08
 
     ;[litR, litG, litB] = boostPreviewColor(
       Math.min(1, litR),
@@ -883,14 +894,14 @@ async function generatePreview(
 }
 
 function compressPreviewChannel(value: number): number {
-  let v = (value / 255) * 0.97
+  let v = Math.min(1, (value / 255) * 1.02)
 
-  if (v > 0.62) {
-    v = 0.62 + (v - 0.62) * 0.52
+  if (v > 0.72) {
+    v = 0.72 + (v - 0.72) * 0.68
   }
 
-  if (v > 0.84) {
-    v = 0.84 + (v - 0.84) * 0.35
+  if (v > 0.9) {
+    v = 0.9 + (v - 0.9) * 0.48
   }
 
   return clamp8(Math.round(v * 255))
@@ -901,7 +912,7 @@ function boostPreviewColor(r: number, g: number, b: number): [number, number, nu
   const maxChannel = Math.max(r, g, b)
   const minChannel = Math.min(r, g, b)
   const chroma = maxChannel - minChannel
-  const vibrance = 0.14 + (1 - Math.min(1, chroma / 0.4)) * 0.18
+  const vibrance = 0.22 + (1 - Math.min(1, chroma / 0.42)) * 0.24
 
   return [
     Math.max(0, Math.min(1, lerp(lum, r, 1 + vibrance))),
