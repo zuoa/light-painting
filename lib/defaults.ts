@@ -4,6 +4,7 @@ import type { ProcessParams, StylePreset } from './types'
 
 export const DEFAULT_PARAMS: ProcessParams = {
   cover: {
+    mode: 'tone',
     saturationReduction: 0.86,
     brightness: 0.99,
     contrast: 1.1,
@@ -50,6 +51,7 @@ export const STYLE_PRESETS: StylePreset[] = [
     description: '柔和朦胧、高光扩散、适合风景',
     params: {
       cover: {
+        mode: 'tone',
         saturationReduction: 0.88,
         brightness: 1.0,
         contrast: 1.06,
@@ -87,6 +89,7 @@ export const STYLE_PRESETS: StylePreset[] = [
     description: '对比更强、适合线条感强的图',
     params: {
       cover: {
+        mode: 'tone',
         saturationReduction: 0.72,
         brightness: 1.0,
         contrast: 1.16,

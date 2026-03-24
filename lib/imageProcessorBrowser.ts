@@ -481,6 +481,86 @@ function createPaperBackground(
   return canvas
 }
 
+function createLineArtCanvas(
+  sourceCanvas: HTMLCanvasElement,
+  params: ProcessParams['cover']
+): HTMLCanvasElement {
+  const canvas = cloneCanvas(sourceCanvas)
+  applyCoverTone(canvas, params)
+
+  const ctx = getContext(canvas)
+  const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height)
+  const data = imageData.data
+  const width = canvas.width
+  const height = canvas.height
+  const luminance = createLuminanceMask(data, width, height)
+  const smoothedLuminance = blurMask(luminance, width, height, Math.max(1, Math.round(1 + params.sharpness * 1.2)))
+  const edgeMask = blurMask(createEdgeMask(data, width, height), width, height, 1)
+  const output = ctx.createImageData(width, height)
+  const inkR = clamp8(92 + params.warmth * 1.1)
+  const inkG = clamp8(72 + params.warmth * 0.55)
+  const inkB = clamp8(54 - params.warmth * 0.15)
+
+  for (let i = 0, p = 0; i < luminance.length; i++, p += 4) {
+    const alpha = data[p + 3] / 255
+    if (alpha <= 0.01) continue
+
+    const detail = Math.min(1, Math.abs(luminance[i] - smoothedLuminance[i]) * (3.2 + params.sharpness * 1.35))
+    const contour = Math.min(1, edgeMask[i] * (1.85 + params.sharpness * 0.5))
+    const shadow = smoothstep(0.18, 0.82, 1 - luminance[i]) * 0.18
+    const lineSignal = contour * (0.84 + params.contrast * 0.26) + detail * 0.96 + shadow
+    const ink = smoothstep(0.14, 0.42, lineSignal)
+    const inkAlpha = clamp8(Math.round(clamp01(ink * alpha) * 255))
+    if (inkAlpha === 0) continue
+
+    output.data[p] = inkR
+    output.data[p + 1] = inkG
+    output.data[p + 2] = inkB
+    output.data[p + 3] = inkAlpha
+  }
+
+  ctx.clearRect(0, 0, width, height)
+  ctx.putImageData(output, 0, 0)
+  applyMaskBlur(ctx, width, height, 1)
+
+  return canvas
+}
+
+function renderLineArtCover(
+  sourceCanvas: HTMLCanvasElement,
+  params: ProcessParams['cover'],
+  subjectBounds?: { x: number; y: number; width: number; height: number }
+): HTMLCanvasElement {
+  const output = createPaperBackground(sourceCanvas.width, sourceCanvas.height, params.warmth)
+  const ctx = getContext(output)
+  const lineCanvas = createLineArtCanvas(sourceCanvas, params)
+
+  if (subjectBounds) {
+    const halo = ctx.createRadialGradient(
+      subjectBounds.x + subjectBounds.width / 2,
+      subjectBounds.y + subjectBounds.height * 0.38,
+      sourceCanvas.width * 0.05,
+      subjectBounds.x + subjectBounds.width / 2,
+      subjectBounds.y + subjectBounds.height * 0.5,
+      sourceCanvas.width * 0.34
+    )
+    halo.addColorStop(0, 'rgba(255,250,244,0.20)')
+    halo.addColorStop(1, 'rgba(255,255,255,0)')
+    ctx.fillStyle = halo
+    ctx.fillRect(0, 0, output.width, output.height)
+  }
+
+  ctx.save()
+  ctx.shadowColor = 'rgba(70, 48, 30, 0.14)'
+  ctx.shadowBlur = 12
+  ctx.shadowOffsetY = 4
+  ctx.drawImage(lineCanvas, 0, 0)
+  ctx.restore()
+
+  ctx.drawImage(lineCanvas, 0, 0)
+  return output
+}
+
 // ─── Cover generation: warm-gray style ───────────────────────────────────────
 
 async function generateCover(
@@ -490,6 +570,15 @@ async function generateCover(
 ): Promise<HTMLCanvasElement> {
   const canvas = cloneCanvas(sourceCanvas)
   applyCoverTone(canvas, params)
+
+  if (params.mode === 'line') {
+    if (!params.extractSubject) {
+      return renderLineArtCover(sourceCanvas, params)
+    }
+
+    const extracted = extractedPortrait ?? await extractPortraitSubject(sourceCanvas)
+    return renderLineArtCover(extracted.canvas, params, extracted.bounds)
+  }
 
   if (!params.extractSubject) {
     return canvas

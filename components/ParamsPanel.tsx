@@ -28,6 +28,10 @@ export function ParamsPanel({
     onChange({ ...params, cover: { ...params.cover, [key]: value } })
   }
 
+  const updateCoverMode = (mode: ProcessParams['cover']['mode']) => {
+    onChange({ ...params, cover: { ...params.cover, mode } })
+  }
+
   const updateLayer1 = (key: Layer1SliderKey, value: number) => {
     onChange({ ...params, layer1: { ...params.layer1, [key]: value } })
   }
@@ -139,6 +143,29 @@ export function ParamsPanel({
 
         {/* Cover Params */}
         <ParamSection title="封面纸参数">
+          <div className="mb-4">
+            <div className="text-xs text-muted mb-2">封面模式</div>
+            <div className="grid grid-cols-2 gap-2">
+              {([
+                { id: 'tone', label: '质感封面', desc: '暖灰纸感，保留明暗层次' },
+                { id: 'line', label: '线条模式', desc: '将封面处理为线条图' },
+              ] as const).map((option) => (
+                <button
+                  key={option.id}
+                  onClick={() => updateCoverMode(option.id)}
+                  className={`rounded-lg border p-3 text-left transition-all ${
+                    params.cover.mode === option.id
+                      ? 'bg-accent/10 border-accent'
+                      : 'bg-surface-2 border-transparent hover:border-surface-3'
+                  }`}
+                >
+                  <div className="text-sm font-medium text-primary">{option.label}</div>
+                  <div className="mt-0.5 text-xs text-muted">{option.desc}</div>
+                </button>
+              ))}
+            </div>
+          </div>
+
           {Object.entries(PARAM_META.cover).map(([key, meta]) => (
             <ParamSlider
               key={key}

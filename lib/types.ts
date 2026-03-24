@@ -17,6 +17,8 @@ export const SIZE_PRESETS: Record<SizePreset, OutputSize> = {
 // ─── Parameter types ──────────────────────────────────────────────────────────
 
 export interface CoverParams {
+  /** Cover render mode */
+  mode: 'tone' | 'line'
   /** 0 = original color, 1 = full grayscale */
   saturationReduction: number
   /** Brightness multiplier, 1.0 = no change */
