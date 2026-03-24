@@ -185,11 +185,23 @@ function scoreComponent(
   return count * (0.7 + centerWeight * 0.95) * edgeWeight
 }
 
+function isGuideBlocked(
+  index: number,
+  removeMask: Uint8Array | null | undefined,
+  keepMask: Uint8Array | null | undefined
+): boolean {
+  return Boolean(removeMask?.[index] && !keepMask?.[index])
+}
+
 function collectPrimarySeedPixels(
   alpha: Uint8ClampedArray,
   width: number,
   height: number,
-  threshold: number
+  threshold: number,
+  guideMasks?: {
+    keepMask: Uint8Array | null
+    removeMask: Uint8Array | null
+  }
 ): number[] | null {
   const visited = new Uint8Array(width * height)
   const queue = new Int32Array(width * height)
@@ -199,7 +211,13 @@ function collectPrimarySeedPixels(
   for (let y = 0; y < height; y++) {
     for (let x = 0; x < width; x++) {
       const start = y * width + x
-      if (visited[start] || alpha[start * 4 + 3] < threshold) continue
+      if (
+        visited[start] ||
+        alpha[start * 4 + 3] < threshold ||
+        isGuideBlocked(start, guideMasks?.removeMask, guideMasks?.keepMask)
+      ) {
+        continue
+      }
 
       let head = 0
       let tail = 0
@@ -226,7 +244,13 @@ function collectPrimarySeedPixels(
         for (let ny = Math.max(0, py - 1); ny <= Math.min(height - 1, py + 1); ny++) {
           for (let nx = Math.max(0, px - 1); nx <= Math.min(width - 1, px + 1); nx++) {
             const next = ny * width + nx
-            if (visited[next] || alpha[next * 4 + 3] < threshold) continue
+            if (
+              visited[next] ||
+              alpha[next * 4 + 3] < threshold ||
+              isGuideBlocked(next, guideMasks?.removeMask, guideMasks?.keepMask)
+            ) {
+              continue
+            }
             visited[next] = 1
             queue[tail++] = next
           }
@@ -249,7 +273,11 @@ function expandSelectionFromSeeds(
   width: number,
   height: number,
   seedPixels: number[],
-  threshold: number
+  threshold: number,
+  guideMasks?: {
+    keepMask: Uint8Array | null
+    removeMask: Uint8Array | null
+  }
 ): Uint8Array {
   const selected = new Uint8Array(width * height)
   const queue = new Int32Array(width * height)
@@ -257,6 +285,7 @@ function expandSelectionFromSeeds(
   let tail = 0
 
   for (const pixel of seedPixels) {
+    if (isGuideBlocked(pixel, guideMasks?.removeMask, guideMasks?.keepMask)) continue
     selected[pixel] = 1
     queue[tail++] = pixel
   }
@@ -269,7 +298,13 @@ function expandSelectionFromSeeds(
     for (let ny = Math.max(0, py - 1); ny <= Math.min(height - 1, py + 1); ny++) {
       for (let nx = Math.max(0, px - 1); nx <= Math.min(width - 1, px + 1); nx++) {
         const next = ny * width + nx
-        if (selected[next] || alpha[next * 4 + 3] < threshold) continue
+        if (
+          selected[next] ||
+          alpha[next * 4 + 3] < threshold ||
+          isGuideBlocked(next, guideMasks?.removeMask, guideMasks?.keepMask)
+        ) {
+          continue
+        }
         selected[next] = 1
         queue[tail++] = next
       }
@@ -329,18 +364,6 @@ function getGuideSeeds(
   }
 
   return null
-}
-
-function applyGuideRemoval(imageData: ImageData, removeMask: Uint8Array | null): void {
-  if (!removeMask) return
-
-  for (let i = 0, p = 0; i < removeMask.length; i++, p += 4) {
-    if (!removeMask[i]) continue
-    imageData.data[p] = 0
-    imageData.data[p + 1] = 0
-    imageData.data[p + 2] = 0
-    imageData.data[p + 3] = 0
-  }
 }
 
 function remapAlpha(alpha: number): number {
@@ -414,13 +437,13 @@ function isolatePrimarySubject(
   const guidedSeeds = getGuideSeeds(alpha, canvas.width, canvas.height, guideMasks?.keepMask ?? null)
   const strongSeeds =
     guidedSeeds ??
-    collectPrimarySeedPixels(alpha, canvas.width, canvas.height, 80) ??
-    collectPrimarySeedPixels(alpha, canvas.width, canvas.height, 48) ??
-    collectPrimarySeedPixels(alpha, canvas.width, canvas.height, 24)
+    collectPrimarySeedPixels(alpha, canvas.width, canvas.height, 80, guideMasks) ??
+    collectPrimarySeedPixels(alpha, canvas.width, canvas.height, 48, guideMasks) ??
+    collectPrimarySeedPixels(alpha, canvas.width, canvas.height, 24, guideMasks)
 
   if (!strongSeeds) return
 
-  const selected = expandSelectionFromSeeds(alpha, canvas.width, canvas.height, strongSeeds, 32)
+  const selected = expandSelectionFromSeeds(alpha, canvas.width, canvas.height, strongSeeds, 32, guideMasks)
 
   for (let i = 0, p = 0; i < selected.length; i++, p += 4) {
     if (selected[i]) continue
@@ -428,26 +451,6 @@ function isolatePrimarySubject(
     imageData.data[p + 1] = 0
     imageData.data[p + 2] = 0
     imageData.data[p + 3] = 0
-  }
-
-  applyGuideRemoval(imageData, guideMasks?.removeMask ?? null)
-
-  if (!guidedSeeds && guideMasks?.removeMask) {
-    const refinedSeeds =
-      collectPrimarySeedPixels(imageData.data, canvas.width, canvas.height, 80) ??
-      collectPrimarySeedPixels(imageData.data, canvas.width, canvas.height, 48) ??
-      collectPrimarySeedPixels(imageData.data, canvas.width, canvas.height, 24)
-
-    if (refinedSeeds) {
-      const refined = expandSelectionFromSeeds(imageData.data, canvas.width, canvas.height, refinedSeeds, 18)
-      for (let i = 0, p = 0; i < refined.length; i++, p += 4) {
-        if (refined[i]) continue
-        imageData.data[p] = 0
-        imageData.data[p + 1] = 0
-        imageData.data[p + 2] = 0
-        imageData.data[p + 3] = 0
-      }
-    }
   }
 
   refineSubjectEdges(imageData)
