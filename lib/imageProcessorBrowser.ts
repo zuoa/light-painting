@@ -144,12 +144,10 @@ export async function processImageBrowser(
   const targetSize = getTargetSize(params.common)
   const sourceCanvas = await resizeToTarget(bitmap, targetSize)
   let extractedPortrait: ExtractedPortrait | null = null
-  let alignedSubjectCanvas: HTMLCanvasElement | null = null
 
   if (params.cover.extractSubject) {
     try {
       extractedPortrait = await extractPortraitSubject(sourceCanvas)
-      alignedSubjectCanvas = createAlignedSubjectCanvas(sourceCanvas.width, sourceCanvas.height, extractedPortrait)
     } catch (error) {
       console.error('[cover] Portrait model extraction failed.', error)
       const reason = error instanceof Error ? error.message : '未知错误'
@@ -159,9 +157,8 @@ export async function processImageBrowser(
 
   // 3. 生成四张图
   const coverCanvas = await generateCover(sourceCanvas, params.cover, extractedPortrait)
-  const layersSourceCanvas = alignedSubjectCanvas ?? sourceCanvas
-  const layer1Canvas = await generateLayer1(layersSourceCanvas, params.layer1, params.common)
-  const layer2Canvas = await generateLayer2(layersSourceCanvas, params.layer2, params.common)
+  const layer1Canvas = await generateLayer1(sourceCanvas, params.layer1, params.common)
+  const layer2Canvas = await generateLayer2(sourceCanvas, params.layer2, params.common)
   const previewCanvas = await generatePreview(coverCanvas, layer1Canvas, layer2Canvas, targetSize)
 
   // 4. 转换为 base64
@@ -483,64 +480,6 @@ function createPaperBackground(
   return canvas
 }
 
-interface SubjectPlacement {
-  sourceCenterX: number
-  sourceCenterY: number
-  scale: number
-  destCenterX: number
-  destCenterY: number
-}
-
-function createSubjectPlacement(
-  bounds: { x: number; y: number; width: number; height: number },
-  width: number,
-  height: number
-): SubjectPlacement {
-  return {
-    sourceCenterX: bounds.x + bounds.width / 2,
-    sourceCenterY: bounds.y + bounds.height / 2,
-    scale: Math.min((width * 0.7) / bounds.width, (height * 0.84) / bounds.height, 1.28),
-    destCenterX: width * 0.5,
-    destCenterY: height * 0.56,
-  }
-}
-
-function drawPlacedSubject(
-  ctx: CanvasRenderingContext2D,
-  subjectCanvas: HTMLCanvasElement,
-  placement: SubjectPlacement,
-  options?: {
-    shadowColor?: string
-    shadowBlur?: number
-    shadowOffsetY?: number
-  }
-): void {
-  ctx.save()
-  ctx.translate(placement.destCenterX, placement.destCenterY)
-  ctx.scale(placement.scale, placement.scale)
-  ctx.translate(-placement.sourceCenterX, -placement.sourceCenterY)
-
-  if (options?.shadowColor) ctx.shadowColor = options.shadowColor
-  if (typeof options?.shadowBlur === 'number') ctx.shadowBlur = options.shadowBlur
-  if (typeof options?.shadowOffsetY === 'number') ctx.shadowOffsetY = options.shadowOffsetY
-
-  ctx.drawImage(subjectCanvas, 0, 0)
-  ctx.restore()
-}
-
-function createAlignedSubjectCanvas(
-  width: number,
-  height: number,
-  extracted: ExtractedPortrait
-): HTMLCanvasElement {
-  const canvas = createCanvas(width, height)
-  const ctx = getContext(canvas)
-  ctx.fillStyle = '#000'
-  ctx.fillRect(0, 0, width, height)
-  drawPlacedSubject(ctx, extracted.canvas, createSubjectPlacement(extracted.bounds, width, height))
-  return canvas
-}
-
 // ─── Cover generation: warm-gray style ───────────────────────────────────────
 
 async function generateCover(
@@ -562,14 +501,16 @@ async function generateCover(
 
   const output = createPaperBackground(width, height, params.warmth)
   const outputCtx = getContext(output)
-  const placement = createSubjectPlacement(extracted.bounds, width, height)
+  const subjectBounds = extracted.bounds
+  const subjectCenterX = subjectBounds.x + subjectBounds.width / 2
+  const subjectCenterY = subjectBounds.y + subjectBounds.height / 2
 
   const halo = outputCtx.createRadialGradient(
-    placement.destCenterX,
-    placement.destCenterY - height * 0.06,
+    subjectCenterX,
+    subjectCenterY - subjectBounds.height * 0.08,
     width * 0.08,
-    placement.destCenterX,
-    placement.destCenterY - height * 0.04,
+    subjectCenterX,
+    subjectCenterY,
     width * 0.4
   )
   halo.addColorStop(0, 'rgba(255,249,240,0.34)')
@@ -578,13 +519,14 @@ async function generateCover(
   outputCtx.fillStyle = halo
   outputCtx.fillRect(0, 0, width, height)
 
-  drawPlacedSubject(outputCtx, subjectCanvas, placement, {
-    shadowColor: 'rgba(74, 54, 36, 0.26)',
-    shadowBlur: 28,
-    shadowOffsetY: 16,
-  })
+  outputCtx.save()
+  outputCtx.shadowColor = 'rgba(74, 54, 36, 0.26)'
+  outputCtx.shadowBlur = 28
+  outputCtx.shadowOffsetY = 16
+  outputCtx.drawImage(subjectCanvas, 0, 0)
+  outputCtx.restore()
 
-  drawPlacedSubject(outputCtx, subjectCanvas, placement)
+  outputCtx.drawImage(subjectCanvas, 0, 0)
 
   return output
 }
