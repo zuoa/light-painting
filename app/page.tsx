@@ -5,8 +5,9 @@ import { UploadZone } from '@/components/UploadZone'
 import { ParamsPanel } from '@/components/ParamsPanel'
 import { ResultGrid } from '@/components/ResultGrid'
 import { ImageCropper } from '@/components/ImageCropper'
+import { MaskEditor } from '@/components/MaskEditor'
 import { Download, Spinner } from '@/components/Icons'
-import type { ProcessParams, ProcessResult } from '@/lib/types'
+import type { ManualMaskGuide, ProcessParams, ProcessResult } from '@/lib/types'
 import { SIZE_PRESETS } from '@/lib/types'
 import { DEFAULT_PARAMS, STYLE_PRESETS } from '@/lib/defaults'
 import { processImageBrowser } from '@/lib/imageProcessorBrowser'
@@ -20,6 +21,8 @@ export default function Home() {
   const [rawImageSrc, setRawImageSrc] = useState<string | null>(null)
   const [rawFile, setRawFile] = useState<File | null>(null)
   const [showCropper, setShowCropper] = useState(false)
+  const [showMaskEditor, setShowMaskEditor] = useState(false)
+  const [manualGuide, setManualGuide] = useState<ManualMaskGuide | null>(null)
 
   const [params, setParams] = useState<ProcessParams>(DEFAULT_PARAMS)
   const [selectedPreset, setSelectedPreset] = useState('portrait')
@@ -41,6 +44,8 @@ export default function Home() {
       setRawImageSrc(src)
       setRawFile(file)
       setShowCropper(true)
+      setShowMaskEditor(false)
+      setManualGuide(null)
       setResult(null)
       setError(null)
     }
@@ -52,6 +57,7 @@ export default function Home() {
     async (croppedDataUrl: string) => {
       setShowCropper(false)
       setOriginalImage(croppedDataUrl)
+      setManualGuide(null)
       try {
         const res = await fetch(croppedDataUrl)
         const blob = await res.blob()
@@ -71,6 +77,7 @@ export default function Home() {
     if (rawImageSrc && rawFile) {
       setOriginalImage(rawImageSrc)
       setOriginalFile(rawFile)
+      setManualGuide(null)
     }
   }, [rawImageSrc, rawFile])
 
@@ -100,7 +107,7 @@ export default function Home() {
 
     try {
       const startTime = Date.now()
-      const processed = await processImageBrowser(originalFile, params)
+      const processed = await processImageBrowser(originalFile, params, manualGuide)
       const duration = Date.now() - startTime
       console.log(`[process] Image processed in ${duration}ms`)
       setResult(processed)
@@ -111,7 +118,7 @@ export default function Home() {
     } finally {
       setIsLoading(false)
     }
-  }, [originalFile, params])
+  }, [manualGuide, originalFile, params])
 
   // Download all as ZIP
   const handleDownloadAll = useCallback(async () => {
@@ -188,12 +195,20 @@ export default function Home() {
               <div className="flex items-center justify-between mb-3">
                 <h2 className="text-sm font-medium text-text-secondary">上传图片</h2>
                 {originalImage && rawImageSrc && (
-                  <button
-                    onClick={handleReCrop}
-                    className="text-xs text-accent hover:text-accent-light transition-colors"
-                  >
-                    重新裁剪
-                  </button>
+                  <div className="flex items-center gap-3">
+                    <button
+                      onClick={() => setShowMaskEditor(true)}
+                      className="text-xs text-accent hover:text-accent-light transition-colors"
+                    >
+                      {manualGuide ? '修改抠图修正' : '抠图修正'}
+                    </button>
+                    <button
+                      onClick={handleReCrop}
+                      className="text-xs text-accent hover:text-accent-light transition-colors"
+                    >
+                      重新裁剪
+                    </button>
+                  </div>
                 )}
               </div>
               <UploadZone onUpload={handleUpload} />
@@ -255,6 +270,18 @@ export default function Home() {
           outputSize={outputSize}
           onConfirm={handleCropConfirm}
           onCancel={handleCropCancel}
+        />
+      )}
+
+      {showMaskEditor && originalImage && (
+        <MaskEditor
+          imageSrc={originalImage}
+          initialGuide={manualGuide}
+          onConfirm={(guide) => {
+            setManualGuide(guide)
+            setShowMaskEditor(false)
+          }}
+          onCancel={() => setShowMaskEditor(false)}
         />
       )}
     </div>

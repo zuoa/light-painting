@@ -74,6 +74,11 @@ export interface ProcessParams {
   common: CommonParams
 }
 
+export interface ManualMaskGuide {
+  keepMask: string | null
+  removeMask: string | null
+}
+
 // ─── API types ────────────────────────────────────────────────────────────────
 
 export interface ProcessResult {

@@ -1,4 +1,5 @@
 import type { Config } from '@imgly/background-removal'
+import type { ManualMaskGuide } from './types'
 
 const MODEL_ASSET_REVISION = '20260324-ort-cache-bust-1'
 
@@ -278,13 +279,85 @@ function expandSelectionFromSeeds(
   return selected
 }
 
-function isolatePrimarySubject(canvas: HTMLCanvasElement): void {
+async function loadGuideMask(
+  src: string | null,
+  width: number,
+  height: number
+): Promise<Uint8Array | null> {
+  if (!src) return null
+
+  const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+    const img = new Image()
+    img.onload = () => resolve(img)
+    img.onerror = () => reject(new Error('Failed to load manual mask guide'))
+    img.src = src
+  })
+
+  const canvas = createCanvas(width, height)
+  const ctx = canvas.getContext('2d', { willReadFrequently: true })
+  if (!ctx) return null
+
+  ctx.drawImage(image, 0, 0, width, height)
+  const data = ctx.getImageData(0, 0, width, height).data
+  const mask = new Uint8Array(width * height)
+  let hasPaint = false
+
+  for (let i = 0, p = 0; i < mask.length; i++, p += 4) {
+    if (data[p + 3] < 8) continue
+    mask[i] = 1
+    hasPaint = true
+  }
+
+  return hasPaint ? mask : null
+}
+
+function getGuideSeeds(
+  alpha: Uint8ClampedArray,
+  width: number,
+  height: number,
+  guideMask: Uint8Array | null
+): number[] | null {
+  if (!guideMask) return null
+
+  for (const threshold of [80, 48, 24]) {
+    const seeds: number[] = []
+    for (let i = 0; i < guideMask.length; i++) {
+      if (!guideMask[i] || alpha[i * 4 + 3] < threshold) continue
+      seeds.push(i)
+    }
+    if (seeds.length > 0) return seeds
+  }
+
+  return null
+}
+
+function applyGuideRemoval(imageData: ImageData, removeMask: Uint8Array | null): void {
+  if (!removeMask) return
+
+  for (let i = 0, p = 0; i < removeMask.length; i++, p += 4) {
+    if (!removeMask[i]) continue
+    imageData.data[p] = 0
+    imageData.data[p + 1] = 0
+    imageData.data[p + 2] = 0
+    imageData.data[p + 3] = 0
+  }
+}
+
+function isolatePrimarySubject(
+  canvas: HTMLCanvasElement,
+  guideMasks?: {
+    keepMask: Uint8Array | null
+    removeMask: Uint8Array | null
+  }
+): void {
   const ctx = canvas.getContext('2d', { willReadFrequently: true })
   if (!ctx) throw new Error('Failed to isolate portrait subject')
 
   const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height)
   const alpha = imageData.data
+  const guidedSeeds = getGuideSeeds(alpha, canvas.width, canvas.height, guideMasks?.keepMask ?? null)
   const strongSeeds =
+    guidedSeeds ??
     collectPrimarySeedPixels(alpha, canvas.width, canvas.height, 80) ??
     collectPrimarySeedPixels(alpha, canvas.width, canvas.height, 48) ??
     collectPrimarySeedPixels(alpha, canvas.width, canvas.height, 24)
@@ -301,6 +374,26 @@ function isolatePrimarySubject(canvas: HTMLCanvasElement): void {
     imageData.data[p + 3] = 0
   }
 
+  applyGuideRemoval(imageData, guideMasks?.removeMask ?? null)
+
+  if (!guidedSeeds && guideMasks?.removeMask) {
+    const refinedSeeds =
+      collectPrimarySeedPixels(imageData.data, canvas.width, canvas.height, 80) ??
+      collectPrimarySeedPixels(imageData.data, canvas.width, canvas.height, 48) ??
+      collectPrimarySeedPixels(imageData.data, canvas.width, canvas.height, 24)
+
+    if (refinedSeeds) {
+      const refined = expandSelectionFromSeeds(imageData.data, canvas.width, canvas.height, refinedSeeds, 18)
+      for (let i = 0, p = 0; i < refined.length; i++, p += 4) {
+        if (refined[i]) continue
+        imageData.data[p] = 0
+        imageData.data[p + 1] = 0
+        imageData.data[p + 2] = 0
+        imageData.data[p + 3] = 0
+      }
+    }
+  }
+
   ctx.putImageData(imageData, 0, 0)
 }
 
@@ -311,7 +404,8 @@ export interface ExtractedPortrait {
 
 export async function extractPortraitSubject(
   sourceCanvas: HTMLCanvasElement,
-  progress?: Config['progress']
+  progress?: Config['progress'],
+  manualGuide?: ManualMaskGuide | null
 ): Promise<ExtractedPortrait> {
   await ensureModelLoaded(progress)
 
@@ -326,7 +420,14 @@ export async function extractPortraitSubject(
   if (!ctx) throw new Error('Failed to create portrait extraction canvas')
   ctx.drawImage(foregroundImage, 0, 0, canvas.width, canvas.height)
 
-  isolatePrimarySubject(canvas)
+  const guideMasks = manualGuide
+    ? {
+        keepMask: await loadGuideMask(manualGuide.keepMask, canvas.width, canvas.height),
+        removeMask: await loadGuideMask(manualGuide.removeMask, canvas.width, canvas.height),
+      }
+    : undefined
+
+  isolatePrimarySubject(canvas, guideMasks)
 
   const bounds = findAlphaBounds(ctx.getImageData(0, 0, canvas.width, canvas.height).data, canvas.width, canvas.height, 24)
   if (!bounds) {

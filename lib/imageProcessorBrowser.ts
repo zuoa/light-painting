@@ -1,7 +1,7 @@
 // 纯前端图像处理器 - 使用 HTMLCanvasElement
 // 无需后端，图片不上传服务器
 
-import type { ProcessParams, ProcessResult } from './types'
+import type { ManualMaskGuide, ProcessParams, ProcessResult } from './types'
 import { extractPortraitSubject } from './portraitExtractor'
 import type { ExtractedPortrait } from './portraitExtractor'
 
@@ -135,7 +135,8 @@ function applyMaskBlur(
 
 export async function processImageBrowser(
   file: File,
-  params: ProcessParams
+  params: ProcessParams,
+  manualGuide?: ManualMaskGuide | null
 ): Promise<ProcessResult> {
   // 1. 加载图片
   const bitmap = await loadImage(file)
@@ -147,7 +148,7 @@ export async function processImageBrowser(
 
   if (params.cover.extractSubject) {
     try {
-      extractedPortrait = await extractPortraitSubject(sourceCanvas)
+      extractedPortrait = await extractPortraitSubject(sourceCanvas, undefined, manualGuide)
     } catch (error) {
       console.error('[cover] Portrait model extraction failed.', error)
       const reason = error instanceof Error ? error.message : '未知错误'
