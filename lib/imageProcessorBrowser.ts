@@ -493,6 +493,43 @@ function createSolidBackground(
   return canvas
 }
 
+function refineBinaryMask(
+  mask: Uint8Array,
+  width: number,
+  height: number,
+  iterations: number
+): Uint8Array {
+  let current = mask
+
+  for (let iteration = 0; iteration < iterations; iteration++) {
+    const next = current.slice()
+
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        const index = y * width + x
+        let neighbors = 0
+
+        for (let ny = Math.max(0, y - 1); ny <= Math.min(height - 1, y + 1); ny++) {
+          for (let nx = Math.max(0, x - 1); nx <= Math.min(width - 1, x + 1); nx++) {
+            if (nx === x && ny === y) continue
+            neighbors += current[ny * width + nx]
+          }
+        }
+
+        if (current[index]) {
+          next[index] = neighbors >= 2 ? 1 : 0
+        } else if (neighbors >= 6) {
+          next[index] = 1
+        }
+      }
+    }
+
+    current = next
+  }
+
+  return current
+}
+
 function createLineArtCanvas(
   sourceCanvas: HTMLCanvasElement,
   params: ProcessParams['cover']
@@ -506,27 +543,34 @@ function createLineArtCanvas(
   const width = canvas.width
   const height = canvas.height
   const luminance = createLuminanceMask(data, width, height)
-  const smoothedLuminance = blurMask(luminance, width, height, Math.max(1, Math.round(1 + params.sharpness * 1.2)))
+  const smoothedLuminance = blurMask(luminance, width, height, Math.max(2, Math.round(2 + params.sharpness)))
   const edgeMask = blurMask(createEdgeMask(data, width, height), width, height, 1)
   const output = ctx.createImageData(width, height)
+  const lineMask = new Uint8Array(width * height)
 
   for (let i = 0, p = 0; i < luminance.length; i++, p += 4) {
     const alpha = data[p + 3] / 255
     if (alpha <= 0.01) continue
 
-    const detail = Math.min(1, Math.abs(luminance[i] - smoothedLuminance[i]) * (3.2 + params.sharpness * 1.35))
-    const contour = Math.min(1, edgeMask[i] * (1.85 + params.sharpness * 0.5))
-    const shadow = smoothstep(0.18, 0.82, 1 - luminance[i]) * 0.12
-    const lineSignal = contour * (0.98 + params.contrast * 0.28) + detail * 1.08 + shadow
-    const ink = smoothstep(0.12, 0.38, lineSignal)
-    const inkAlpha = clamp8(Math.round(clamp01(ink * alpha) * 255))
-    if (inkAlpha === 0) continue
-    const inkValue = clamp8(Math.round(lerp(32, 0, ink)))
+    const detail = Math.min(1, Math.abs(luminance[i] - smoothedLuminance[i]) * (2.5 + params.sharpness * 0.9))
+    const contour = Math.min(1, edgeMask[i] * (2.15 + params.sharpness * 0.45))
+    const darkStroke = smoothstep(0.42, 0.8, 1 - luminance[i]) * contour
+    const lineSignal = contour * (1.08 + params.contrast * 0.22) + detail * 0.72 + darkStroke * 0.45
+    const threshold = lerp(0.22, 0.34, Math.min(1, params.contrast - 0.8))
 
-    output.data[p] = inkValue
-    output.data[p + 1] = inkValue
-    output.data[p + 2] = inkValue
-    output.data[p + 3] = inkAlpha
+    if (lineSignal >= threshold) {
+      lineMask[i] = 1
+    }
+  }
+
+  const cleanedMask = refineBinaryMask(lineMask, width, height, 2)
+
+  for (let i = 0, p = 0; i < cleanedMask.length; i++, p += 4) {
+    if (!cleanedMask[i]) continue
+    output.data[p] = 0
+    output.data[p + 1] = 0
+    output.data[p + 2] = 0
+    output.data[p + 3] = 255
   }
 
   ctx.clearRect(0, 0, width, height)
