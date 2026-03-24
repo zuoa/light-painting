@@ -193,6 +193,36 @@ function isGuideBlocked(
   return Boolean(removeMask?.[index] && !keepMask?.[index])
 }
 
+function expandGuideMask(
+  mask: Uint8Array | null,
+  width: number,
+  height: number,
+  radius: number,
+  keepMask?: Uint8Array | null
+): Uint8Array | null {
+  if (!mask) return null
+  if (radius <= 0) return mask.slice()
+
+  const expanded = mask.slice()
+
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const index = y * width + x
+      if (!mask[index]) continue
+
+      for (let ny = Math.max(0, y - radius); ny <= Math.min(height - 1, y + radius); ny++) {
+        for (let nx = Math.max(0, x - radius); nx <= Math.min(width - 1, x + radius); nx++) {
+          const next = ny * width + nx
+          if (keepMask?.[next]) continue
+          expanded[next] = 1
+        }
+      }
+    }
+  }
+
+  return expanded
+}
+
 function collectPrimarySeedPixels(
   alpha: Uint8ClampedArray,
   width: number,
@@ -366,6 +396,22 @@ function getGuideSeeds(
   return null
 }
 
+function applyGuideRemoval(
+  imageData: ImageData,
+  removeMask: Uint8Array | null,
+  keepMask: Uint8Array | null
+): void {
+  if (!removeMask) return
+
+  for (let i = 0, p = 0; i < removeMask.length; i++, p += 4) {
+    if (!removeMask[i] || keepMask?.[i]) continue
+    imageData.data[p] = 0
+    imageData.data[p + 1] = 0
+    imageData.data[p + 2] = 0
+    imageData.data[p + 3] = 0
+  }
+}
+
 function remapAlpha(alpha: number): number {
   if (alpha <= 18) return 0
   if (alpha >= 220) return 255
@@ -434,16 +480,30 @@ function isolatePrimarySubject(
 
   const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height)
   const alpha = imageData.data
-  const guidedSeeds = getGuideSeeds(alpha, canvas.width, canvas.height, guideMasks?.keepMask ?? null)
+  const removeMaskRadius = Math.min(6, Math.max(2, Math.round(Math.max(canvas.width, canvas.height) * 0.0025)))
+  const effectiveGuideMasks = guideMasks
+    ? {
+        keepMask: guideMasks.keepMask,
+        removeMask: expandGuideMask(
+          guideMasks.removeMask,
+          canvas.width,
+          canvas.height,
+          removeMaskRadius,
+          guideMasks.keepMask
+        ),
+      }
+    : undefined
+
+  const guidedSeeds = getGuideSeeds(alpha, canvas.width, canvas.height, effectiveGuideMasks?.keepMask ?? null)
   const strongSeeds =
     guidedSeeds ??
-    collectPrimarySeedPixels(alpha, canvas.width, canvas.height, 80, guideMasks) ??
-    collectPrimarySeedPixels(alpha, canvas.width, canvas.height, 48, guideMasks) ??
-    collectPrimarySeedPixels(alpha, canvas.width, canvas.height, 24, guideMasks)
+    collectPrimarySeedPixels(alpha, canvas.width, canvas.height, 80, effectiveGuideMasks) ??
+    collectPrimarySeedPixels(alpha, canvas.width, canvas.height, 48, effectiveGuideMasks) ??
+    collectPrimarySeedPixels(alpha, canvas.width, canvas.height, 24, effectiveGuideMasks)
 
   if (!strongSeeds) return
 
-  const selected = expandSelectionFromSeeds(alpha, canvas.width, canvas.height, strongSeeds, 32, guideMasks)
+  const selected = expandSelectionFromSeeds(alpha, canvas.width, canvas.height, strongSeeds, 32, effectiveGuideMasks)
 
   for (let i = 0, p = 0; i < selected.length; i++, p += 4) {
     if (selected[i]) continue
@@ -451,6 +511,35 @@ function isolatePrimarySubject(
     imageData.data[p + 1] = 0
     imageData.data[p + 2] = 0
     imageData.data[p + 3] = 0
+  }
+
+  if (effectiveGuideMasks?.removeMask) {
+    applyGuideRemoval(imageData, effectiveGuideMasks.removeMask, effectiveGuideMasks.keepMask)
+
+    const refinedSeeds =
+      getGuideSeeds(imageData.data, canvas.width, canvas.height, effectiveGuideMasks.keepMask ?? null) ??
+      collectPrimarySeedPixels(imageData.data, canvas.width, canvas.height, 80, effectiveGuideMasks) ??
+      collectPrimarySeedPixels(imageData.data, canvas.width, canvas.height, 48, effectiveGuideMasks) ??
+      collectPrimarySeedPixels(imageData.data, canvas.width, canvas.height, 24, effectiveGuideMasks)
+
+    if (refinedSeeds) {
+      const refined = expandSelectionFromSeeds(
+        imageData.data,
+        canvas.width,
+        canvas.height,
+        refinedSeeds,
+        18,
+        effectiveGuideMasks
+      )
+
+      for (let i = 0, p = 0; i < refined.length; i++, p += 4) {
+        if (refined[i]) continue
+        imageData.data[p] = 0
+        imageData.data[p + 1] = 0
+        imageData.data[p + 2] = 0
+        imageData.data[p + 3] = 0
+      }
+    }
   }
 
   refineSubjectEdges(imageData)
