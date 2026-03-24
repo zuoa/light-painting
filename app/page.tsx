@@ -196,12 +196,14 @@ export default function Home() {
                 <h2 className="text-sm font-medium text-text-secondary">上传图片</h2>
                 {originalImage && rawImageSrc && (
                   <div className="flex items-center gap-3">
-                    <button
-                      onClick={() => setShowMaskEditor(true)}
-                      className="text-xs text-accent hover:text-accent-light transition-colors"
-                    >
-                      {manualGuide ? '修改抠图修正' : '抠图修正'}
-                    </button>
+                    {params.cover.extractSubject && (
+                      <button
+                        onClick={() => setShowMaskEditor(true)}
+                        className="text-xs text-accent hover:text-accent-light transition-colors"
+                      >
+                        {manualGuide ? '修改抠图修正' : '抠图修正'}
+                      </button>
+                    )}
                     <button
                       onClick={handleReCrop}
                       className="text-xs text-accent hover:text-accent-light transition-colors"
@@ -273,7 +275,7 @@ export default function Home() {
         />
       )}
 
-      {showMaskEditor && originalImage && (
+      {showMaskEditor && originalImage && params.cover.extractSubject && (
         <MaskEditor
           imageSrc={originalImage}
           initialGuide={manualGuide}

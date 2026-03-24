@@ -343,6 +343,62 @@ function applyGuideRemoval(imageData: ImageData, removeMask: Uint8Array | null):
   }
 }
 
+function remapAlpha(alpha: number): number {
+  if (alpha <= 18) return 0
+  if (alpha >= 220) return 255
+
+  const t = (alpha - 18) / (220 - 18)
+  const eased = t * t * (3 - 2 * t)
+  return Math.round(eased * 255)
+}
+
+function refineSubjectEdges(imageData: ImageData): void {
+  const { data, width, height } = imageData
+  const nextAlpha = new Uint8ClampedArray(width * height)
+
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const idx = y * width + x
+      const alpha = data[idx * 4 + 3]
+      if (alpha === 0) continue
+
+      let localMax = alpha
+      let localMin = alpha
+
+      for (let ny = Math.max(0, y - 1); ny <= Math.min(height - 1, y + 1); ny++) {
+        for (let nx = Math.max(0, x - 1); nx <= Math.min(width - 1, x + 1); nx++) {
+          const neighborAlpha = data[(ny * width + nx) * 4 + 3]
+          if (neighborAlpha > localMax) localMax = neighborAlpha
+          if (neighborAlpha < localMin) localMin = neighborAlpha
+        }
+      }
+
+      // Suppress wispy low-alpha spill while keeping solid edges readable.
+      const contracted = alpha < 112 ? Math.max(0, alpha - (localMax - alpha) * 0.28) : alpha
+      const stabilized = contracted < 160 ? Math.max(contracted, localMin * 0.9) : contracted
+      nextAlpha[idx] = remapAlpha(stabilized)
+    }
+  }
+
+  for (let i = 0, p = 0; i < nextAlpha.length; i++, p += 4) {
+    const alpha = nextAlpha[i]
+    data[p + 3] = alpha
+
+    if (alpha === 0) {
+      data[p] = 0
+      data[p + 1] = 0
+      data[p + 2] = 0
+      continue
+    }
+
+    if (alpha < 32) {
+      data[p] = 0
+      data[p + 1] = 0
+      data[p + 2] = 0
+    }
+  }
+}
+
 function isolatePrimarySubject(
   canvas: HTMLCanvasElement,
   guideMasks?: {
@@ -364,7 +420,7 @@ function isolatePrimarySubject(
 
   if (!strongSeeds) return
 
-  const selected = expandSelectionFromSeeds(alpha, canvas.width, canvas.height, strongSeeds, 18)
+  const selected = expandSelectionFromSeeds(alpha, canvas.width, canvas.height, strongSeeds, 32)
 
   for (let i = 0, p = 0; i < selected.length; i++, p += 4) {
     if (selected[i]) continue
@@ -394,6 +450,7 @@ function isolatePrimarySubject(
     }
   }
 
+  refineSubjectEdges(imageData)
   ctx.putImageData(imageData, 0, 0)
 }
 
